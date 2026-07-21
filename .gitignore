@@ -1,0 +1,19 @@
+# Node modules
+node_modules/
+
+# Environment variables
+.env
+
+# Local SQLite database
+database.sqlite
+*.db
+*.sqlite
+
+# Local uploaded proofs (R2 storage fallback)
+public/uploads/*
+!public/uploads/.gitkeep
+
+# OS / Editor temporary files
+.DS_Store
+Thumbs.db
+*.log

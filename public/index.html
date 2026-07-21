@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>O Batismo Português - E é assim a Vida</title>
+  <meta name="description" content="Plataforma de gestão e acompanhamento em tempo real de tarefas do Batismo Português.">
+  
+  <!-- Google Fonts: Playfair Display (Titulos Vintage) e Inter (Corpo) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,600;0,700;0,800;1,600;1,700&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            vintage: {
+              bg: '#f4efe6',
+              bgDark: '#e8e1d5',
+              paper: '#faf7f2',
+              red: '#8b1e1e',
+              redDark: '#6b1515',
+              navy: '#1d2d44',
+              navyDark: '#0b2545',
+              gold: '#c59b27',
+              cream: '#fffdf9',
+              green: '#1b4332'
+            }
+          },
+          fontFamily: {
+            title: ['"Playfair Display"', 'Georgia', 'serif'],
+            display: ['"Cinzel"', 'serif'],
+            sans: ['"Inter"', 'sans-serif']
+          },
+          boxShadow: {
+            vintage: '0 4px 20px -2px rgba(29, 45, 68, 0.15)',
+            stamp: '0 0 0 3px rgba(139, 30, 30, 0.2), inset 0 0 10px rgba(0,0,0,0.05)'
+          }
+        }
+      }
+    }
+  </script>
+  
+  <style>
+    /* Estilos Customizados para Estética Vintage / Papel Envelhecido */
+    body {
+      background-color: #f4efe6;
+      background-image: radial-gradient(#d9cfc1 0.75px, transparent 0.75px), radial-gradient(#d9cfc1 0.75px, #f4efe6 0.75px);
+      background-size: 30px 30px;
+      background-position: 0 0, 15px 15px;
+      color: #1d2d44;
+    }
+
+    .badge-stamp-pendente {
+      border: 2px dashed #8b1e1e;
+      color: #8b1e1e;
+      background-color: rgba(139, 30, 30, 0.08);
+      text-transform: uppercase;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      transform: rotate(-3deg);
+    }
+
+    .badge-stamp-concluida {
+      border: 2px solid #1b4332;
+      color: #1b4332;
+      background-color: rgba(27, 67, 50, 0.1);
+      text-transform: uppercase;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      transform: rotate(2deg);
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(1.2); }
+    }
+    .pulse-live {
+      animation: pulse-dot 2s infinite ease-in-out;
+    }
+
+    .modal-backdrop {
+      background-color: rgba(11, 37, 69, 0.65);
+      backdrop-filter: blur(4px);
+    }
+  </style>
+</head>
+<body class="font-sans min-h-screen flex flex-col antialiased selection:bg-vintage-red selection:text-white">
+
+  <!-- CABEÇALHO DA APLICAÇÃO (VINTAGE PORTUGUÊS) -->
+  <header class="bg-vintage-paper border-b-4 border-vintage-red shadow-lg relative overflow-hidden">
+    <!-- Faixa decorativa -->
+    <div class="h-2 bg-gradient-to-r from-vintage-red via-vintage-gold to-vintage-navy"></div>
+    
+    <div class="max-w-6xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
+      <div class="flex flex-col md:flex-row items-center justify-between gap-6">
+        
+        <!-- Logo + Título -->
+        <div class="flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left">
+          <!-- Logo do Kiwi com Bacalhau e Cerveja -->
+          <div class="relative group">
+            <div class="w-24 h-24 sm:w-28 sm:h-28 rounded-full border-4 border-vintage-gold bg-vintage-bg p-1 shadow-md overflow-hidden transition-transform duration-300 group-hover:scale-105">
+              <img src="/assets/logo-kiwi.png" alt="Kiwi em Trajo Tradicional com Bacalhau e Cerveja" class="w-full h-full object-contain" id="kiwiLogoImg">
+            </div>
+            <div class="absolute -bottom-1 -right-1 bg-vintage-red text-white text-xs px-2 py-0.5 rounded-full font-bold shadow border border-vintage-gold">
+              🍺 🇵🇹
+            </div>
+          </div>
+
+          <div>
+            <h1 class="font-display font-extrabold text-3xl sm:text-4xl lg:text-5xl text-vintage-red tracking-tight leading-tight">
+              O Batismo Português
+            </h1>
+            <p class="font-title italic text-lg sm:text-xl text-vintage-navy font-semibold mt-1 flex items-center justify-center sm:justify-start gap-2">
+              <span class="inline-block w-8 h-0.5 bg-vintage-gold"></span>
+              <span id="txtSubtitle">"E é assim a Vida"</span>
+              <span class="inline-block w-8 h-0.5 bg-vintage-gold"></span>
+            </p>
+          </div>
+        </div>
+
+        <!-- Painel de Idioma, Tempo Real e Sessão -->
+        <div class="flex flex-col items-center md:items-end gap-3">
+          
+          <div class="flex items-center gap-3">
+            <!-- Seletor de Idioma (PT / EN) -->
+            <div class="bg-vintage-bg border border-vintage-navy/30 rounded-lg p-0.5 flex items-center shadow-sm">
+              <button id="langPtBtn" onclick="app.setLanguage('pt')" class="px-2.5 py-1 rounded-md text-xs font-bold transition-all bg-vintage-navy text-white">
+                🇵🇹 PT
+              </button>
+              <button id="langEnBtn" onclick="app.setLanguage('en')" class="px-2.5 py-1 rounded-md text-xs font-bold transition-all text-vintage-navy hover:bg-vintage-bgDark">
+                🇬🇧 EN
+              </button>
+            </div>
+
+            <!-- Indicador de Tempo Real Polling -->
+            <div class="inline-flex items-center gap-2 bg-vintage-bgDark/60 border border-vintage-navy/20 px-3 py-1 rounded-full text-xs font-semibold text-vintage-navy">
+              <span class="w-2.5 h-2.5 rounded-full bg-emerald-600 pulse-live"></span>
+              <span id="txtLiveStatus">Tempo Real Ativo (5s)</span>
+            </div>
+          </div>
+
+          <!-- Ações do Utilizador (Login / Perfil) -->
+          <div id="authContainer" class="flex items-center gap-3">
+            <!-- Renderizado via JS -->
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </header>
+
+  <!-- CONTEÚDO PRINCIPAL -->
+  <main class="flex-grow max-w-6xl w-full mx-auto px-4 py-8 sm:px-6 lg:px-8">
+
+    <!-- BARRA DE FERRAMENTAS E FILTROS -->
+    <div class="bg-vintage-paper rounded-xl p-4 sm:p-6 mb-8 border border-vintage-gold/30 shadow-vintage flex flex-col md:flex-row items-center justify-between gap-4">
+      
+      <!-- Filtros de Estado -->
+      <div class="flex items-center gap-2 w-full md:w-auto overflow-x-auto pb-2 md:pb-0">
+        <button id="btnFilterAll" onclick="app.setFilter('all')" class="px-4 py-2 rounded-lg font-semibold text-sm transition-all bg-vintage-navy text-white shadow-sm hover:bg-vintage-navyDark">
+          📋 <span id="lblFilterAll">Todas as Tarefas</span> (<span id="countAll">0</span>)
+        </button>
+        <button id="btnFilterPending" onclick="app.setFilter('pendente')" class="px-4 py-2 rounded-lg font-semibold text-sm transition-all bg-vintage-bg hover:bg-vintage-bgDark text-vintage-red border border-vintage-red/20">
+          ⏳ <span id="lblFilterPending">Pendentes</span> (<span id="countPending">0</span>)
+        </button>
+        <button id="btnFilterCompleted" onclick="app.setFilter('concluida')" class="px-4 py-2 rounded-lg font-semibold text-sm transition-all bg-vintage-bg hover:bg-vintage-bgDark text-vintage-green border border-vintage-green/20">
+          ✅ <span id="lblFilterCompleted">Concluídas</span> (<span id="countCompleted">0</span>)
+        </button>
+      </div>
+
+      <!-- Ações de Admin & Pesquisa -->
+      <div class="flex items-center gap-3 w-full md:w-auto justify-end">
+        <!-- Botões Admin -->
+        <div id="adminActionButtons" class="hidden flex items-center gap-2">
+          <button onclick="app.openNewTaskModal()" class="px-4 py-2 bg-vintage-red hover:bg-vintage-redDark text-white font-bold rounded-lg text-sm shadow transition-transform active:scale-95 flex items-center gap-1.5 border border-vintage-gold/40">
+            <span>➕</span> <span id="lblNewTask">Nova Tarefa</span>
+          </button>
+          <button onclick="app.openManageUsersModal()" class="px-3 py-2 bg-vintage-navy hover:bg-vintage-navyDark text-white font-semibold rounded-lg text-sm shadow transition-transform active:scale-95 flex items-center gap-1.5">
+            <span>👥</span> <span id="lblManageUsers">Gerir Utilizadores</span>
+          </button>
+        </div>
+
+        <!-- Campo de Pesquisa -->
+        <div class="relative w-full md:w-56">
+          <input type="text" id="searchInput" oninput="app.renderTasks()" placeholder="Pesquisar tarefas..." class="w-full pl-9 pr-4 py-2 rounded-lg bg-vintage-bg border border-vintage-navy/20 text-sm focus:outline-none focus:ring-2 focus:ring-vintage-red text-vintage-navy">
+          <span class="absolute left-3 top-2.5 text-vintage-navy/50 text-sm">🔍</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- LISTA / GRELHA DE TAREFAS -->
+    <div id="tasksContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <!-- Tarefas carregadas via JS -->
+      <div class="col-span-full py-16 text-center text-vintage-navy/60">
+        <div class="inline-block animate-spin text-3xl mb-3">🍺</div>
+        <p class="font-title text-lg" id="txtLoading">A carregar as tarefas do Batismo...</p>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- RODAPÉ VINTAGE -->
+  <footer class="bg-vintage-navy text-vintage-paper py-8 border-t-4 border-vintage-gold mt-12">
+    <div class="max-w-6xl mx-auto px-4 text-center">
+      <p class="font-display text-lg tracking-wider text-vintage-gold">O BATISMO PORTUGUÊS</p>
+      <p class="font-title italic text-sm text-vintage-bgDark/80 mt-1" id="txtFooterSubtitle">"E é assim a Vida" &bull; Celebração Tradicional</p>
+      <p class="text-xs text-vintage-bgDark/50 mt-4">&copy; 2026 O Batismo Português. Todos os direitos reservados.</p>
+    </div>
+  </footer>
+
+  <!-- ========================================== -->
+  <!-- MODAIS (LOGIN, CRIAR TAREFA, GERIR USERS, UPLOAD, MEDIA LIGHTBOX) -->
+  <!-- ========================================== -->
+
+  <!-- MODAL DE LOGIN -->
+  <div id="loginModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop">
+    <div class="bg-vintage-paper rounded-2xl border-4 border-vintage-red shadow-2xl max-w-md w-full p-6 sm:p-8 relative">
+      <button onclick="app.closeModal('loginModal')" class="absolute top-4 right-4 text-vintage-navy/50 hover:text-vintage-red font-bold text-xl">✕</button>
+      
+      <div class="text-center mb-6">
+        <div class="w-16 h-16 mx-auto mb-2 rounded-full border-2 border-vintage-gold p-1 bg-vintage-bg">
+          <img src="/assets/logo-kiwi.png" alt="Logo" class="w-full h-full object-contain">
+        </div>
+        <h2 class="font-display font-bold text-2xl text-vintage-red" id="lblLoginModalTitle">Entrar no Batismo</h2>
+        <p class="text-sm text-vintage-navy/70 mt-1" id="lblLoginModalSubtitle">Indique o seu nome de utilizador e palavra-passe</p>
+      </div>
+
+      <form id="loginForm" onsubmit="app.handleLogin(event)" class="space-y-4">
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-vintage-navy mb-1" id="lblUsername">Nome de Utilizador</label>
+          <input type="text" id="loginNome" required placeholder="ex: thomaz ou admin" class="w-full px-4 py-2.5 rounded-lg bg-vintage-bg border border-vintage-navy/30 focus:ring-2 focus:ring-vintage-red focus:outline-none text-vintage-navy">
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-vintage-navy mb-1" id="lblPassword">Palavra-passe</label>
+          <input type="password" id="loginPassword" required placeholder="••••••••" class="w-full px-4 py-2.5 rounded-lg bg-vintage-bg border border-vintage-navy/30 focus:ring-2 focus:ring-vintage-red focus:outline-none text-vintage-navy">
+        </div>
+
+        <div id="loginError" class="hidden p-3 bg-red-100 border border-red-300 text-vintage-red text-xs rounded-lg font-semibold text-center"></div>
+
+        <button type="submit" id="btnSubmitLogin" class="w-full py-3 bg-vintage-red hover:bg-vintage-redDark text-white font-bold rounded-lg shadow-md transition-all border border-vintage-gold/50 text-base">
+          Entrar na Conta
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL DE CRIAR / EDITAR TAREFA (ADMIN) -->
+  <div id="taskModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop">
+    <div class="bg-vintage-paper rounded-2xl border-4 border-vintage-gold shadow-2xl max-w-lg w-full p-6 sm:p-8 relative">
+      <button onclick="app.closeModal('taskModal')" class="absolute top-4 right-4 text-vintage-navy/50 hover:text-vintage-red font-bold text-xl">✕</button>
+      
+      <h2 id="taskModalTitle" class="font-display font-bold text-2xl text-vintage-navy mb-4">Nova Tarefa do Batismo</h2>
+
+      <form id="taskForm" onsubmit="app.handleSaveTask(event)" class="space-y-4">
+        <input type="hidden" id="taskId">
+        
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-vintage-navy mb-1" id="lblTaskTitle">Título da Tarefa *</label>
+          <input type="text" id="taskTitulo" required placeholder="ex: Comprar o Bacalhau para o Jantar" class="w-full px-4 py-2.5 rounded-lg bg-vintage-bg border border-vintage-navy/30 focus:ring-2 focus:ring-vintage-red focus:outline-none text-vintage-navy font-semibold">
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-vintage-navy mb-1" id="lblTaskDesc">Descrição</label>
+          <textarea id="taskDescricao" rows="3" placeholder="Detalhes e instruções para cumprir a missão..." class="w-full px-4 py-2.5 rounded-lg bg-vintage-bg border border-vintage-navy/30 focus:ring-2 focus:ring-vintage-red focus:outline-none text-vintage-navy text-sm"></textarea>
+        </div>
+
+        <div class="flex justify-end gap-3 pt-4 border-t border-vintage-navy/10">
+          <button type="button" onclick="app.closeModal('taskModal')" id="btnCancelTask" class="px-4 py-2 bg-vintage-bgDark text-vintage-navy font-semibold rounded-lg hover:bg-vintage-navy/10">
+            Cancelar
+          </button>
+          <button type="submit" id="btnSaveTask" class="px-6 py-2 bg-vintage-red hover:bg-vintage-redDark text-white font-bold rounded-lg shadow">
+            Guardar Tarefa
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL DE GERIR UTILIZADORES (ADMIN) -->
+  <div id="usersModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop">
+    <div class="bg-vintage-paper rounded-2xl border-4 border-vintage-navy shadow-2xl max-w-xl w-full p-6 sm:p-8 relative">
+      <button onclick="app.closeModal('usersModal')" class="absolute top-4 right-4 text-vintage-navy/50 hover:text-vintage-red font-bold text-xl">✕</button>
+      
+      <h2 class="font-display font-bold text-2xl text-vintage-navy mb-4 flex items-center gap-2" id="lblManageUsersModalTitle">
+        <span>👥</span> Gerir Utilizadores
+      </h2>
+
+      <!-- Form para Criar Utilizador -->
+      <form id="createUserForm" onsubmit="app.handleCreateUser(event)" class="bg-vintage-bg p-4 rounded-xl border border-vintage-gold/40 mb-6 space-y-3">
+        <h3 class="font-bold text-sm text-vintage-red uppercase tracking-wider" id="lblCreateNewAccount">Criar Nova Conta</h3>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <input type="text" id="newUserName" required placeholder="Nome" class="px-3 py-2 rounded-lg bg-white border border-vintage-navy/20 text-sm">
+          <input type="password" id="newUserPass" required placeholder="Palavra-passe" class="px-3 py-2 rounded-lg bg-white border border-vintage-navy/20 text-sm">
+          <select id="newUserRole" class="px-3 py-2 rounded-lg bg-white border border-vintage-navy/20 text-sm">
+            <option value="utilizador" id="optRoleUser">Utilizador</option>
+            <option value="admin" id="optRoleAdmin">Administrador</option>
+          </select>
+        </div>
+        <div id="createUserError" class="hidden text-xs text-red-600 font-semibold"></div>
+        <button type="submit" id="btnCreateUser" class="w-full py-2 bg-vintage-navy hover:bg-vintage-navyDark text-white font-bold rounded-lg text-sm shadow">
+          Criar Utilizador
+        </button>
+      </form>
+
+      <!-- Lista de Utilizadores Existentes -->
+      <div>
+        <h3 class="font-bold text-xs uppercase tracking-wider text-vintage-navy mb-2" id="lblRegisteredUsers">Utilizadores Registados</h3>
+        <div id="usersList" class="max-h-56 overflow-y-auto space-y-2 pr-1">
+          <!-- Lista carregada via JS -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL UPLOAD DE COMPROVATIVO -->
+  <div id="uploadModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop">
+    <div class="bg-vintage-paper rounded-2xl border-4 border-vintage-red shadow-2xl max-w-md w-full p-6 sm:p-8 relative">
+      <button onclick="app.closeModal('uploadModal')" class="absolute top-4 right-4 text-vintage-navy/50 hover:text-vintage-red font-bold text-xl">✕</button>
+      
+      <div class="text-center mb-4">
+        <span class="text-4xl">📸 📹</span>
+        <h2 class="font-display font-bold text-2xl text-vintage-red mt-2" id="lblUploadModalTitle">Enviar Comprovativo</h2>
+        <p class="text-xs text-vintage-navy/70 mt-1" id="lblUploadModalSubtitle">Anexe uma foto ou vídeo para comprovar a conclusão da tarefa</p>
+      </div>
+
+      <form id="uploadForm" onsubmit="app.handleUploadProof(event)" class="space-y-4">
+        <input type="hidden" id="uploadTaskId">
+
+        <div class="border-2 border-dashed border-vintage-red/40 bg-vintage-bg rounded-xl p-6 text-center hover:border-vintage-red transition-colors cursor-pointer" onclick="document.getElementById('proofFileInput').click()">
+          <input type="file" id="proofFileInput" accept="image/*,video/*" required class="hidden" onchange="app.handleFileSelect(event)">
+          <div id="uploadFilePreview">
+            <span class="text-3xl block mb-2">📁</span>
+            <p class="text-sm font-bold text-vintage-navy" id="lblClickFileSelect">Clique para selecionar foto ou vídeo</p>
+            <p class="text-xs text-vintage-navy/50 mt-1" id="lblFileHint">Suporta JPG, PNG, WEBP, MP4, MOV (Máx. 50MB)</p>
+          </div>
+        </div>
+
+        <div id="uploadProgress" class="hidden text-center py-2">
+          <div class="inline-block animate-spin text-xl text-vintage-red">🌀</div>
+          <p class="text-xs font-bold text-vintage-navy mt-1" id="lblUploading">A carregar para o armazenamento...</p>
+        </div>
+
+        <div class="flex justify-end gap-3 pt-2">
+          <button type="button" onclick="app.closeModal('uploadModal')" id="btnCancelUpload" class="px-4 py-2 bg-vintage-bgDark text-vintage-navy font-semibold rounded-lg text-sm">
+            Cancelar
+          </button>
+          <button type="submit" id="btnSubmitUpload" class="px-6 py-2 bg-vintage-red hover:bg-vintage-redDark text-white font-bold rounded-lg text-sm shadow">
+            Enviar & Concluir
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL LIGHTBOX PARA VISUALIZAR MEDIA AMPLIADA -->
+  <div id="mediaLightboxModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop">
+    <div class="bg-vintage-navy rounded-2xl border-4 border-vintage-gold shadow-2xl max-w-4xl w-full p-4 relative flex flex-col items-center">
+      <button onclick="app.closeModal('mediaLightboxModal')" class="absolute top-3 right-4 text-white hover:text-vintage-gold font-bold text-2xl z-10">✕</button>
+      <div id="mediaLightboxContent" class="w-full flex justify-center items-center max-h-[80vh] overflow-hidden rounded-xl bg-black/40">
+        <!-- Renderizado dinamicamente -->
+      </div>
+    </div>
+  </div>
+
+  <!-- APLICAÇÃO JS -->
+  <script src="/app.js"></script>
+</body>
+</html>
