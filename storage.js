@@ -3,6 +3,10 @@ const fs = require('fs');
 const path = require('path');
 const dotenv = require('dotenv');
 
+const batismoEnvPath = path.resolve(__dirname, 'batismo.env');
+if (fs.existsSync(batismoEnvPath)) {
+  dotenv.config({ path: batismoEnvPath });
+}
 dotenv.config();
 
 const {

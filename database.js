@@ -3,6 +3,12 @@ const bcrypt = require('bcryptjs');
 const path = require('path');
 const dotenv = require('dotenv');
 
+const fs = require('fs');
+
+const batismoEnvPath = path.resolve(__dirname, 'batismo.env');
+if (fs.existsSync(batismoEnvPath)) {
+  dotenv.config({ path: batismoEnvPath });
+}
 dotenv.config();
 
 const dbPath = path.resolve(__dirname, process.env.DB_FILE || 'database.sqlite');

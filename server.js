@@ -8,6 +8,12 @@ const multer = require('multer');
 const { GoogleGenAI } = require('@google/genai');
 const https = require('https');
 
+const fs = require('fs');
+
+const batismoEnvPath = path.resolve(__dirname, 'batismo.env');
+if (fs.existsSync(batismoEnvPath)) {
+  dotenv.config({ path: batismoEnvPath });
+}
 dotenv.config();
 
 const db = require('./database');

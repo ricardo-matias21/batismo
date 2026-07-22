@@ -3,6 +3,9 @@ node_modules/
 
 # Environment variables
 .env
+batismo.env
+*.env
+!.env.example
 
 # Local SQLite database
 database.sqlite
