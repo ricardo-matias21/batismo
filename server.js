@@ -6,6 +6,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const multer = require('multer');
 const { GoogleGenAI } = require('@google/genai');
+const https = require('https');
 
 dotenv.config();
 
@@ -17,48 +18,74 @@ const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'o_batismo_portugues_segredo_super_seguro_2026';
 
 // Google Gemini API Client
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim();
 let ai = null;
 if (GEMINI_API_KEY) {
   ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 }
 
 /**
- * Traduz título e descrição de tarefas usando a API do Gemini (@google/genai)
+ * Tradução de reserva via HTTP caso a chave do Gemini não esteja configurada ou ocorra erro
+ */
+function translateFreeHttp(text) {
+  return new Promise((resolve) => {
+    if (!text || !text.trim()) return resolve('');
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=pt&tl=en&dt=t&q=${encodeURIComponent(text)}`;
+    
+    https.get(url, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          const translated = parsed[0].map(item => item[0]).join('');
+          resolve(translated || text);
+        } catch (e) {
+          resolve(text);
+        }
+      });
+    }).on('error', () => resolve(text));
+  });
+}
+
+/**
+ * Traduz título e descrição de tarefas usando Gemini API ou motor de tradução de reserva
  */
 async function translateTaskWithGemini(titulo, descricao) {
-  if (!ai) {
-    console.log('ℹ️ GEMINI_API_KEY não definida no .env. A utilizar texto em Português como reserva.');
-    return { titulo_en: titulo, descricao_en: descricao || '' };
-  }
-
-  try {
-    console.log('🤖 A traduzir tarefa via Gemini API (@google/genai)...');
-    const prompt = `Traduz o seguinte título e descrição de uma tarefa para Inglês. O evento chama-se 'O Batismo Português' e é jovem/descontraído, por isso traduz gírias ou expressões portuguesas para equivalentes naturais em inglês. Devolve apenas um JSON com os campos 'titulo_en' e 'descricao_en'.
+  if (ai) {
+    try {
+      console.log('🤖 A traduzir tarefa via Gemini API (@google/genai)...');
+      const prompt = `Traduz o seguinte título e descrição de uma tarefa para Inglês. O evento chama-se 'O Batismo Português' e é jovem/descontraído, por isso traduz gírias ou expressões portuguesas para equivalentes naturais em inglês. Devolve apenas um JSON com os campos 'titulo_en' e 'descricao_en'.
 
 Título: ${titulo}
 Descrição: ${descricao || ''}`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json'
-      }
-    });
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json'
+        }
+      });
 
-    const responseText = response.text;
-    const parsed = JSON.parse(responseText);
+      const responseText = response.text;
+      const parsed = JSON.parse(responseText);
 
-    console.log('✨ Tradução concluída com sucesso!');
-    return {
-      titulo_en: parsed.titulo_en || titulo,
-      descricao_en: parsed.descricao_en || (descricao || '')
-    };
-  } catch (err) {
-    console.error('⚠️ Erro ao traduzir com Gemini API:', err.message);
-    return { titulo_en: titulo, descricao_en: descricao || '' };
+      console.log('✨ Tradução Gemini concluída com sucesso!');
+      return {
+        titulo_en: parsed.titulo_en || titulo,
+        descricao_en: parsed.descricao_en || (descricao || '')
+      };
+    } catch (err) {
+      console.error('⚠️ Erro na chamada Gemini API, a utilizar motor de reserva:', err.message);
+    }
   }
+
+  // Fallback automático de tradução
+  console.log('🌐 A traduzir tarefa via motor automático de reserva (PT -> EN)...');
+  const titulo_en = await translateFreeHttp(titulo);
+  const descricao_en = await translateFreeHttp(descricao);
+  return { titulo_en, descricao_en };
 }
 
 // Middleware
@@ -238,7 +265,7 @@ app.get('/api/tasks', async (req, res) => {
   }
 });
 
-// Criar nova tarefa (Apenas Admin) + Tradução Automática via Gemini API
+// Criar nova tarefa (Apenas Admin) + Tradução Automática
 app.post('/api/tasks', autenticarToken, apenasAdmin, async (req, res) => {
   const { titulo, descricao, atribuida_a, tarefa_pai_id } = req.body;
 
@@ -249,7 +276,7 @@ app.post('/api/tasks', autenticarToken, apenasAdmin, async (req, res) => {
   const paiIdParsed = tarefa_pai_id ? parseInt(tarefa_pai_id, 10) : null;
 
   try {
-    // Fazer tradução automática para Inglês via Gemini API
+    // Fazer tradução automática para Inglês
     const { titulo_en, descricao_en } = await translateTaskWithGemini(titulo, descricao);
 
     const result = await db.run(
