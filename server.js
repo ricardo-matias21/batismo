@@ -5,6 +5,7 @@ const path = require('path');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const multer = require('multer');
+const { GoogleGenAI } = require('@google/genai');
 
 dotenv.config();
 
@@ -14,6 +15,51 @@ const { uploadFile } = require('./storage');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'o_batismo_portugues_segredo_super_seguro_2026';
+
+// Google Gemini API Client
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+let ai = null;
+if (GEMINI_API_KEY) {
+  ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+}
+
+/**
+ * Traduz título e descrição de tarefas usando a API do Gemini (@google/genai)
+ */
+async function translateTaskWithGemini(titulo, descricao) {
+  if (!ai) {
+    console.log('ℹ️ GEMINI_API_KEY não definida no .env. A utilizar texto em Português como reserva.');
+    return { titulo_en: titulo, descricao_en: descricao || '' };
+  }
+
+  try {
+    console.log('🤖 A traduzir tarefa via Gemini API (@google/genai)...');
+    const prompt = `Traduz o seguinte título e descrição de uma tarefa para Inglês. O evento chama-se 'O Batismo Português' e é jovem/descontraído, por isso traduz gírias ou expressões portuguesas para equivalentes naturais em inglês. Devolve apenas um JSON com os campos 'titulo_en' e 'descricao_en'.
+
+Título: ${titulo}
+Descrição: ${descricao || ''}`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json'
+      }
+    });
+
+    const responseText = response.text;
+    const parsed = JSON.parse(responseText);
+
+    console.log('✨ Tradução concluída com sucesso!');
+    return {
+      titulo_en: parsed.titulo_en || titulo,
+      descricao_en: parsed.descricao_en || (descricao || '')
+    };
+  } catch (err) {
+    console.error('⚠️ Erro ao traduzir com Gemini API:', err.message);
+    return { titulo_en: titulo, descricao_en: descricao || '' };
+  }
+}
 
 // Middleware
 app.use(cors());
@@ -157,11 +203,14 @@ app.get('/api/tasks', async (req, res) => {
         t.id, 
         t.titulo, 
         t.descricao, 
+        t.titulo_en,
+        t.descricao_en,
         t.estado, 
         t.atribuida_a, 
         t.criada_por,
         t.tarefa_pai_id,
         tp.titulo AS tarefa_pai_titulo,
+        tp.titulo_en AS tarefa_pai_titulo_en,
         tp.estado AS tarefa_pai_estado,
         u_atrib.nome AS atribuida_a_nome,
         u_cria.nome AS criada_por_nome
@@ -189,7 +238,7 @@ app.get('/api/tasks', async (req, res) => {
   }
 });
 
-// Criar nova tarefa (Apenas Admin)
+// Criar nova tarefa (Apenas Admin) + Tradução Automática via Gemini API
 app.post('/api/tasks', autenticarToken, apenasAdmin, async (req, res) => {
   const { titulo, descricao, atribuida_a, tarefa_pai_id } = req.body;
 
@@ -200,15 +249,20 @@ app.post('/api/tasks', autenticarToken, apenasAdmin, async (req, res) => {
   const paiIdParsed = tarefa_pai_id ? parseInt(tarefa_pai_id, 10) : null;
 
   try {
+    // Fazer tradução automática para Inglês via Gemini API
+    const { titulo_en, descricao_en } = await translateTaskWithGemini(titulo, descricao);
+
     const result = await db.run(
-      `INSERT INTO tarefas (titulo, descricao, atribuida_a, criada_por, tarefa_pai_id, estado) 
-       VALUES (?, ?, ?, ?, ?, 'pendente')`,
-      [titulo, descricao || '', atribuida_a || null, req.utilizador.id, paiIdParsed]
+      `INSERT INTO tarefas (titulo, descricao, titulo_en, descricao_en, atribuida_a, criada_por, tarefa_pai_id, estado) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pendente')`,
+      [titulo, descricao || '', titulo_en, descricao_en, atribuida_a || null, req.utilizador.id, paiIdParsed]
     );
 
     res.status(201).json({
       mensagem: 'Tarefa criada com sucesso!',
-      tarefa_id: result.lastInsertRowid
+      tarefa_id: result.lastInsertRowid,
+      titulo_en,
+      descricao_en
     });
   } catch (err) {
     console.error('Erro ao criar tarefa:', err);
@@ -246,11 +300,21 @@ app.put('/api/tasks/:id', autenticarToken, async (req, res) => {
     const novaAtribuicao = isAdmin && atribuida_a !== undefined ? atribuida_a : tarefa.atribuida_a;
     const novaTarefaPai = isAdmin && tarefa_pai_id !== undefined ? (tarefa_pai_id ? parseInt(tarefa_pai_id, 10) : null) : tarefa.tarefa_pai_id;
 
+    let novoTituloEn = tarefa.titulo_en;
+    let novaDescricaoEn = tarefa.descricao_en;
+
+    // Recalcular tradução se o admin alterou título ou descrição
+    if (isAdmin && (titulo !== undefined || descricao !== undefined)) {
+      const translation = await translateTaskWithGemini(novoTitulo, novaDescricao);
+      novoTituloEn = translation.titulo_en;
+      novaDescricaoEn = translation.descricao_en;
+    }
+
     await db.run(
       `UPDATE tarefas 
-       SET estado = ?, titulo = ?, descricao = ?, atribuida_a = ?, tarefa_pai_id = ?
+       SET estado = ?, titulo = ?, descricao = ?, titulo_en = ?, descricao_en = ?, atribuida_a = ?, tarefa_pai_id = ?
        WHERE id = ?`,
-      [novoEstado, novoTitulo, novaDescricao, novaAtribuicao, novaTarefaPai, tarefaId]
+      [novoEstado, novoTitulo, novaDescricao, novoTituloEn, novaDescricaoEn, novaAtribuicao, novaTarefaPai, tarefaId]
     );
 
     res.json({ mensagem: 'Tarefa atualizada com sucesso!' });
@@ -298,7 +362,6 @@ app.post('/api/tasks/:id/upload', autenticarToken, upload.single('ficheiro'), as
       return res.status(404).json({ erro: 'Tarefa não encontrada.' });
     }
 
-    // Verificar se a tarefa está bloqueada pela tarefa pai
     if (tarefa.tarefa_pai_id && tarefa.tarefa_pai_estado !== 'concluida') {
       return res.status(400).json({ erro: 'Esta tarefa está bloqueada até que a tarefa pai seja concluída.' });
     }

@@ -1,6 +1,6 @@
 /**
  * O BATISMO PORTUGUÊS - E é assim a Vida
- * Frontend Application Script (Vanilla JS + Polling 5s + Multi-idioma PT/EN + Tarefas Dependentes)
+ * Frontend Application Script (Vanilla JS + Polling 5s + Multi-idioma PT/EN + Tarefas Dependentes + Tradução Gemini)
  */
 
 const TRANSLATIONS = {
@@ -431,6 +431,7 @@ class BatismoApp {
   renderTasks() {
     const container = document.getElementById('tasksContainer');
     const searchQuery = (document.getElementById('searchInput').value || '').toLowerCase().trim();
+    const isEn = this.lang === 'en';
 
     let filtered = this.tasks;
 
@@ -441,10 +442,16 @@ class BatismoApp {
     }
 
     if (searchQuery) {
-      filtered = filtered.filter(t => 
-        t.titulo.toLowerCase().includes(searchQuery) ||
-        (t.descricao && t.descricao.toLowerCase().includes(searchQuery))
-      );
+      filtered = filtered.filter(t => {
+        const titlePt = t.titulo || '';
+        const titleEn = t.titulo_en || '';
+        const descPt = t.descricao || '';
+        const descEn = t.descricao_en || '';
+        return titlePt.toLowerCase().includes(searchQuery) ||
+               titleEn.toLowerCase().includes(searchQuery) ||
+               descPt.toLowerCase().includes(searchQuery) ||
+               descEn.toLowerCase().includes(searchQuery);
+      });
     }
 
     if (filtered.length === 0) {
@@ -465,6 +472,10 @@ class BatismoApp {
       const isBloqueada = t.tarefa_pai_id && t.tarefa_pai_estado !== 'concluida';
       const canUpload = !!this.user && !isBloqueada;
 
+      const displayTitulo = isEn ? (t.titulo_en || t.titulo) : t.titulo;
+      const displayDescricao = isEn ? (t.descricao_en || t.descricao) : t.descricao;
+      const parentTitulo = isEn ? (t.tarefa_pai_titulo_en || t.tarefa_pai_titulo) : t.tarefa_pai_titulo;
+
       return `
         <div class="bg-vintage-paper rounded-2xl p-6 border-2 ${isConcluida ? 'border-vintage-green/30' : isBloqueada ? 'border-amber-600/40 bg-amber-50/20' : 'border-vintage-gold/40'} shadow-vintage flex flex-col justify-between relative overflow-hidden transition-all hover:shadow-xl">
           
@@ -472,7 +483,7 @@ class BatismoApp {
           <div class="flex items-start justify-between gap-2 mb-3">
             <div class="flex-1">
               <h3 class="font-title font-bold text-xl text-vintage-navy leading-snug">
-                ${this.escapeHtml(t.titulo)}
+                ${this.escapeHtml(displayTitulo)}
               </h3>
             </div>
 
@@ -493,12 +504,12 @@ class BatismoApp {
             <div class="my-4 bg-amber-100/80 border-2 border-amber-300 p-4 rounded-xl text-amber-900 text-sm font-semibold flex items-center gap-3">
               <span class="text-2xl">🔒</span>
               <p class="leading-relaxed">
-                ${this.t('mustCompleteFirst', { parent: this.escapeHtml(t.tarefa_pai_titulo || 'Tarefa Pai') })}
+                ${this.t('mustCompleteFirst', { parent: this.escapeHtml(parentTitulo || 'Parent Task') })}
               </p>
             </div>
           ` : `
             <!-- Descrição -->
-            ${t.descricao ? `<p class="text-sm text-vintage-navy/80 mb-4 bg-vintage-bg/50 p-3 rounded-lg border border-vintage-gold/20 leading-relaxed">${this.escapeHtml(t.descricao)}</p>` : '<div class="mb-4"></div>'}
+            ${displayDescricao ? `<p class="text-sm text-vintage-navy/80 mb-4 bg-vintage-bg/50 p-3 rounded-lg border border-vintage-gold/20 leading-relaxed">${this.escapeHtml(displayDescricao)}</p>` : '<div class="mb-4"></div>'}
 
             <!-- Galeria de Anexos -->
             ${t.anexos && t.anexos.length > 0 ? `
@@ -570,13 +581,15 @@ class BatismoApp {
     const select = document.getElementById('taskTarefaPai');
     if (!select) return;
 
+    const isEn = this.lang === 'en';
     const options = [
       `<option value="" id="optNoParent">${this.t('noParentOpt')}</option>`
     ];
 
     this.tasks.forEach(t => {
-      if (currentTaskId && t.id === parseInt(currentTaskId, 10)) return; // não permitir selecionar a própria tarefa
-      options.push(`<option value="${t.id}">${this.escapeHtml(t.titulo)} (${t.estado === 'concluida' ? '✔' : '⏳'})</option>`);
+      if (currentTaskId && t.id === parseInt(currentTaskId, 10)) return;
+      const parentTitle = isEn ? (t.titulo_en || t.titulo) : t.titulo;
+      options.push(`<option value="${t.id}">${this.escapeHtml(parentTitle)} (${t.estado === 'concluida' ? '✔' : '⏳'})</option>`);
     });
 
     select.innerHTML = options.join('');

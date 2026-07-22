@@ -63,6 +63,8 @@ async function initDatabase() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       titulo TEXT NOT NULL,
       descricao TEXT,
+      titulo_en TEXT,
+      descricao_en TEXT,
       atribuida_a INTEGER,
       criada_por INTEGER,
       tarefa_pai_id INTEGER,
@@ -73,16 +75,25 @@ async function initDatabase() {
     );
   `);
 
-  // Migração automática se a coluna tarefa_pai_id não existir na tabela existente
+  // Migração automática de colunas tarefa_pai_id, titulo_en e descricao_en
   try {
     const columns = await dbAsync.all('PRAGMA table_info(tarefas)');
-    const hasTarefaPai = columns.some(col => col.name === 'tarefa_pai_id');
-    if (!hasTarefaPai) {
+    const colNames = columns.map(col => col.name);
+
+    if (!colNames.includes('tarefa_pai_id')) {
       console.log('🔄 A adicionar coluna tarefa_pai_id à tabela tarefas...');
       await dbAsync.exec('ALTER TABLE tarefas ADD COLUMN tarefa_pai_id INTEGER REFERENCES tarefas(id) ON DELETE SET NULL;');
     }
+    if (!colNames.includes('titulo_en')) {
+      console.log('🔄 A adicionar coluna titulo_en à tabela tarefas...');
+      await dbAsync.exec('ALTER TABLE tarefas ADD COLUMN titulo_en TEXT;');
+    }
+    if (!colNames.includes('descricao_en')) {
+      console.log('🔄 A adicionar coluna descricao_en à tabela tarefas...');
+      await dbAsync.exec('ALTER TABLE tarefas ADD COLUMN descricao_en TEXT;');
+    }
   } catch (err) {
-    console.error('Nota na verificação de coluna tarefa_pai_id:', err.message);
+    console.error('Nota na verificação de migração de colunas:', err.message);
   }
 
   // 3. Tabela anexos_tarefa
