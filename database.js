@@ -65,11 +65,25 @@ async function initDatabase() {
       descricao TEXT,
       atribuida_a INTEGER,
       criada_por INTEGER,
+      tarefa_pai_id INTEGER,
       estado TEXT CHECK(estado IN ('pendente', 'concluida')) NOT NULL DEFAULT 'pendente',
       FOREIGN KEY (atribuida_a) REFERENCES utilizadores(id) ON DELETE SET NULL,
-      FOREIGN KEY (criada_por) REFERENCES utilizadores(id) ON DELETE SET NULL
+      FOREIGN KEY (criada_por) REFERENCES utilizadores(id) ON DELETE SET NULL,
+      FOREIGN KEY (tarefa_pai_id) REFERENCES tarefas(id) ON DELETE SET NULL
     );
   `);
+
+  // Migração automática se a coluna tarefa_pai_id não existir na tabela existente
+  try {
+    const columns = await dbAsync.all('PRAGMA table_info(tarefas)');
+    const hasTarefaPai = columns.some(col => col.name === 'tarefa_pai_id');
+    if (!hasTarefaPai) {
+      console.log('🔄 A adicionar coluna tarefa_pai_id à tabela tarefas...');
+      await dbAsync.exec('ALTER TABLE tarefas ADD COLUMN tarefa_pai_id INTEGER REFERENCES tarefas(id) ON DELETE SET NULL;');
+    }
+  } catch (err) {
+    console.error('Nota na verificação de coluna tarefa_pai_id:', err.message);
+  }
 
   // 3. Tabela anexos_tarefa
   await dbAsync.exec(`
@@ -83,7 +97,7 @@ async function initDatabase() {
     );
   `);
 
-  // Seed inicial de contas e tarefas caso a tabela utilizadores esteja vazia
+  // Seed inicial de contas caso a tabela utilizadores esteja vazia
   const { count } = await dbAsync.get('SELECT COUNT(*) as count FROM utilizadores');
 
   if (count === 0) {

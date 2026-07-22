@@ -160,9 +160,13 @@ app.get('/api/tasks', async (req, res) => {
         t.estado, 
         t.atribuida_a, 
         t.criada_por,
+        t.tarefa_pai_id,
+        tp.titulo AS tarefa_pai_titulo,
+        tp.estado AS tarefa_pai_estado,
         u_atrib.nome AS atribuida_a_nome,
         u_cria.nome AS criada_por_nome
       FROM tarefas t
+      LEFT JOIN tarefas tp ON t.tarefa_pai_id = tp.id
       LEFT JOIN utilizadores u_atrib ON t.atribuida_a = u_atrib.id
       LEFT JOIN utilizadores u_cria ON t.criada_por = u_cria.id
       ORDER BY t.id DESC
@@ -187,17 +191,19 @@ app.get('/api/tasks', async (req, res) => {
 
 // Criar nova tarefa (Apenas Admin)
 app.post('/api/tasks', autenticarToken, apenasAdmin, async (req, res) => {
-  const { titulo, descricao, atribuida_a } = req.body;
+  const { titulo, descricao, atribuida_a, tarefa_pai_id } = req.body;
 
   if (!titulo) {
     return res.status(400).json({ erro: 'O título da tarefa é obrigatório.' });
   }
 
+  const paiIdParsed = tarefa_pai_id ? parseInt(tarefa_pai_id, 10) : null;
+
   try {
     const result = await db.run(
-      `INSERT INTO tarefas (titulo, descricao, atribuida_a, criada_por, estado) 
-       VALUES (?, ?, ?, ?, 'pendente')`,
-      [titulo, descricao || '', atribuida_a || null, req.utilizador.id]
+      `INSERT INTO tarefas (titulo, descricao, atribuida_a, criada_por, tarefa_pai_id, estado) 
+       VALUES (?, ?, ?, ?, ?, 'pendente')`,
+      [titulo, descricao || '', atribuida_a || null, req.utilizador.id, paiIdParsed]
     );
 
     res.status(201).json({
@@ -213,10 +219,15 @@ app.post('/api/tasks', autenticarToken, apenasAdmin, async (req, res) => {
 // Atualizar estado / dados da tarefa
 app.put('/api/tasks/:id', autenticarToken, async (req, res) => {
   const tarefaId = req.params.id;
-  const { estado, titulo, descricao, atribuida_a } = req.body;
+  const { estado, titulo, descricao, atribuida_a, tarefa_pai_id } = req.body;
 
   try {
-    const tarefa = await db.get('SELECT * FROM tarefas WHERE id = ?', [tarefaId]);
+    const tarefa = await db.get(`
+      SELECT t.*, tp.estado AS tarefa_pai_estado 
+      FROM tarefas t
+      LEFT JOIN tarefas tp ON t.tarefa_pai_id = tp.id
+      WHERE t.id = ?
+    `, [tarefaId]);
 
     if (!tarefa) {
       return res.status(404).json({ erro: 'Tarefa não encontrada.' });
@@ -224,16 +235,22 @@ app.put('/api/tasks/:id', autenticarToken, async (req, res) => {
 
     const isAdmin = req.utilizador.papel === 'admin';
 
+    // Se estiver a tentar marcar como concluída mas a tarefa pai não estiver concluída
+    if (estado === 'concluida' && tarefa.tarefa_pai_id && tarefa.tarefa_pai_estado !== 'concluida') {
+      return res.status(400).json({ erro: 'Esta tarefa está bloqueada até que a tarefa pai seja concluída.' });
+    }
+
     const novoEstado = estado || tarefa.estado;
     const novoTitulo = isAdmin && titulo !== undefined ? titulo : tarefa.titulo;
     const novaDescricao = isAdmin && descricao !== undefined ? descricao : tarefa.descricao;
     const novaAtribuicao = isAdmin && atribuida_a !== undefined ? atribuida_a : tarefa.atribuida_a;
+    const novaTarefaPai = isAdmin && tarefa_pai_id !== undefined ? (tarefa_pai_id ? parseInt(tarefa_pai_id, 10) : null) : tarefa.tarefa_pai_id;
 
     await db.run(
       `UPDATE tarefas 
-       SET estado = ?, titulo = ?, descricao = ?, atribuida_a = ?
+       SET estado = ?, titulo = ?, descricao = ?, atribuida_a = ?, tarefa_pai_id = ?
        WHERE id = ?`,
-      [novoEstado, novoTitulo, novaDescricao, novaAtribuicao, tarefaId]
+      [novoEstado, novoTitulo, novaDescricao, novaAtribuicao, novaTarefaPai, tarefaId]
     );
 
     res.json({ mensagem: 'Tarefa atualizada com sucesso!' });
@@ -270,10 +287,20 @@ app.post('/api/tasks/:id/upload', autenticarToken, upload.single('ficheiro'), as
   }
 
   try {
-    const tarefa = await db.get('SELECT * FROM tarefas WHERE id = ?', [tarefaId]);
+    const tarefa = await db.get(`
+      SELECT t.*, tp.estado AS tarefa_pai_estado 
+      FROM tarefas t
+      LEFT JOIN tarefas tp ON t.tarefa_pai_id = tp.id
+      WHERE t.id = ?
+    `, [tarefaId]);
 
     if (!tarefa) {
       return res.status(404).json({ erro: 'Tarefa não encontrada.' });
+    }
+
+    // Verificar se a tarefa está bloqueada pela tarefa pai
+    if (tarefa.tarefa_pai_id && tarefa.tarefa_pai_estado !== 'concluida') {
+      return res.status(400).json({ erro: 'Esta tarefa está bloqueada até que a tarefa pai seja concluída.' });
     }
 
     // Determinar se é imagem ou vídeo

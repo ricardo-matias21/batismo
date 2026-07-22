@@ -1,6 +1,6 @@
 /**
  * O BATISMO PORTUGUÊS - E é assim a Vida
- * Frontend Application Script (Vanilla JS + Polling 5s + Multi-idioma PT/EN)
+ * Frontend Application Script (Vanilla JS + Polling 5s + Multi-idioma PT/EN + Tarefas Dependentes)
  */
 
 const TRANSLATIONS = {
@@ -20,12 +20,14 @@ const TRANSLATIONS = {
     loadingTasks: 'A carregar as tarefas do Batismo...',
     noTasksTitle: 'Nenhuma tarefa encontrada',
     noTasksSubtitle: 'Altere o filtro ou crie uma nova tarefa para o Batismo.',
-    stampPending: '✔ Concluída',
+    stampCompleted: '✔ Concluída',
     stampPendingText: '⏳ Pendente',
+    stampLockedText: '🔒 Bloqueada',
     completeAndAttach: 'Concluir & Anexar',
     addProof: 'Adicionar Comprovativo',
     awaitingProof: 'Aguardando comprovativo',
     missionAccomplished: 'Missão cumprida!',
+    mustCompleteFirst: '🔒 Bloqueada — Conclua primeiro: "{parent}" para desbloquear.',
     attachedProofs: 'Comprovativos Anexados',
     maximize: 'Maximizar',
     viewImage: 'Ver Imagem',
@@ -41,6 +43,8 @@ const TRANSLATIONS = {
     taskTitlePlaceholder: 'ex: Comprar o Bacalhau para o Jantar',
     taskDescLabel: 'Descrição',
     taskDescPlaceholder: 'Detalhes e instruções para cumprir a missão...',
+    taskParentLabel: 'Tarefa Pai (Para Desbloquear)',
+    noParentOpt: '-- Nenhuma (Livre / Desbloqueada) --',
     cancelBtn: 'Cancelar',
     saveTaskBtn: 'Guardar Tarefa',
     manageUsersModalTitle: 'Gerir Utilizadores',
@@ -82,12 +86,14 @@ const TRANSLATIONS = {
     loadingTasks: 'Loading Baptism tasks...',
     noTasksTitle: 'No tasks found',
     noTasksSubtitle: 'Change filter or create a new task for the Baptism.',
-    stampPending: '✔ Completed',
+    stampCompleted: '✔ Completed',
     stampPendingText: '⏳ Pending',
+    stampLockedText: '🔒 Locked',
     completeAndAttach: 'Complete & Attach',
     addProof: 'Add Proof',
     awaitingProof: 'Awaiting proof',
     missionAccomplished: 'Mission accomplished!',
+    mustCompleteFirst: '🔒 Locked — Complete first: "{parent}" to unlock.',
     attachedProofs: 'Attached Proofs',
     maximize: 'Maximize',
     viewImage: 'View Image',
@@ -103,6 +109,8 @@ const TRANSLATIONS = {
     taskTitlePlaceholder: 'e.g. Buy Codfish for Dinner',
     taskDescLabel: 'Description',
     taskDescPlaceholder: 'Details and instructions to fulfill the mission...',
+    taskParentLabel: 'Parent Task (To Unlock)',
+    noParentOpt: '-- None (Free / Unlocked) --',
     cancelBtn: 'Cancel',
     saveTaskBtn: 'Save Task',
     manageUsersModalTitle: 'Manage Users',
@@ -164,7 +172,6 @@ class BatismoApp {
     this.lang = lang;
     localStorage.setItem('batismo_lang', lang);
 
-    // Atualizar botões de idioma
     const btnPt = document.getElementById('langPtBtn');
     const btnEn = document.getElementById('langEnBtn');
     
@@ -223,6 +230,8 @@ class BatismoApp {
     setPlaceholder('taskTitulo', 'taskTitlePlaceholder');
     setTxt('lblTaskDesc', 'taskDescLabel');
     setPlaceholder('taskDescricao', 'taskDescPlaceholder');
+    setTxt('lblTaskParent', 'taskParentLabel');
+    setTxt('optNoParent', 'noParentOpt');
     setTxt('btnCancelTask', 'cancelBtn');
     setTxt('btnSaveTask', 'saveTaskBtn');
 
@@ -453,10 +462,11 @@ class BatismoApp {
 
     container.innerHTML = filtered.map(t => {
       const isConcluida = t.estado === 'concluida';
-      const canUpload = !!this.user;
+      const isBloqueada = t.tarefa_pai_id && t.tarefa_pai_estado !== 'concluida';
+      const canUpload = !!this.user && !isBloqueada;
 
       return `
-        <div class="bg-vintage-paper rounded-2xl p-6 border-2 ${isConcluida ? 'border-vintage-green/30' : 'border-vintage-gold/40'} shadow-vintage flex flex-col justify-between relative overflow-hidden transition-all hover:shadow-xl">
+        <div class="bg-vintage-paper rounded-2xl p-6 border-2 ${isConcluida ? 'border-vintage-green/30' : isBloqueada ? 'border-amber-600/40 bg-amber-50/20' : 'border-vintage-gold/40'} shadow-vintage flex flex-col justify-between relative overflow-hidden transition-all hover:shadow-xl">
           
           <!-- Carimbo de Estado Vintage -->
           <div class="flex items-start justify-between gap-2 mb-3">
@@ -467,43 +477,59 @@ class BatismoApp {
             </div>
 
             <!-- Carimbo -->
-            <div class="shrink-0 px-3 py-1 text-xs rounded-md ${isConcluida ? 'badge-stamp-concluida' : 'badge-stamp-pendente'}">
-              ${isConcluida ? this.t('stampPending') : this.t('stampPendingText')}
+            <div class="shrink-0 px-3 py-1 text-xs rounded-md ${
+              isConcluida 
+                ? 'badge-stamp-concluida' 
+                : isBloqueada 
+                ? 'border-2 border-dashed border-amber-700 text-amber-800 bg-amber-100/70 font-extrabold uppercase tracking-wider -rotate-2' 
+                : 'badge-stamp-pendente'
+            }">
+              ${isConcluida ? this.t('stampCompleted') : isBloqueada ? this.t('stampLockedText') : this.t('stampPendingText')}
             </div>
           </div>
 
-          <!-- Descrição -->
-          ${t.descricao ? `<p class="text-sm text-vintage-navy/80 mb-4 bg-vintage-bg/50 p-3 rounded-lg border border-vintage-gold/20 leading-relaxed">${this.escapeHtml(t.descricao)}</p>` : '<div class="mb-4"></div>'}
-
-          <!-- Galeria de Anexos -->
-          ${t.anexos && t.anexos.length > 0 ? `
-            <div class="mb-4 border-t border-vintage-navy/10 pt-3">
-              <span class="block text-xs font-bold text-vintage-navy/60 uppercase tracking-wider mb-2">${this.t('attachedProofs')} (${t.anexos.length}):</span>
-              <div class="grid grid-cols-2 gap-2">
-                ${t.anexos.map(anexo => {
-                  if (anexo.tipo_ficheiro === 'video') {
-                    return `
-                      <div class="relative rounded-xl overflow-hidden border-2 border-vintage-navy/30 bg-black aspect-video group">
-                        <video src="${anexo.url_ficheiro}" controls class="w-full h-full object-cover"></video>
-                        <button onclick="app.openLightbox('${anexo.url_ficheiro}', 'video')" class="absolute top-1 right-1 bg-vintage-navy/80 hover:bg-vintage-navy text-white text-xs px-2 py-0.5 rounded shadow">
-                          🔍 ${this.t('maximize')}
-                        </button>
-                      </div>
-                    `;
-                  } else {
-                    return `
-                      <div class="relative rounded-xl overflow-hidden border-2 border-vintage-gold/50 bg-vintage-bg aspect-video group cursor-pointer" onclick="app.openLightbox('${anexo.url_ficheiro}', 'imagem')">
-                        <img src="${anexo.url_ficheiro}" alt="Comprovativo" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
-                        <div class="absolute inset-0 bg-vintage-navy/20 group-hover:bg-transparent transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                          <span class="bg-vintage-paper text-vintage-navy text-xs font-bold px-2 py-1 rounded shadow">${this.t('viewImage')}</span>
-                        </div>
-                      </div>
-                    `;
-                  }
-                }).join('')}
-              </div>
+          <!-- Conteúdo: Se Bloqueada vs Desbloqueada -->
+          ${isBloqueada ? `
+            <div class="my-4 bg-amber-100/80 border-2 border-amber-300 p-4 rounded-xl text-amber-900 text-sm font-semibold flex items-center gap-3">
+              <span class="text-2xl">🔒</span>
+              <p class="leading-relaxed">
+                ${this.t('mustCompleteFirst', { parent: this.escapeHtml(t.tarefa_pai_titulo || 'Tarefa Pai') })}
+              </p>
             </div>
-          ` : ''}
+          ` : `
+            <!-- Descrição -->
+            ${t.descricao ? `<p class="text-sm text-vintage-navy/80 mb-4 bg-vintage-bg/50 p-3 rounded-lg border border-vintage-gold/20 leading-relaxed">${this.escapeHtml(t.descricao)}</p>` : '<div class="mb-4"></div>'}
+
+            <!-- Galeria de Anexos -->
+            ${t.anexos && t.anexos.length > 0 ? `
+              <div class="mb-4 border-t border-vintage-navy/10 pt-3">
+                <span class="block text-xs font-bold text-vintage-navy/60 uppercase tracking-wider mb-2">${this.t('attachedProofs')} (${t.anexos.length}):</span>
+                <div class="grid grid-cols-2 gap-2">
+                  ${t.anexos.map(anexo => {
+                    if (anexo.tipo_ficheiro === 'video') {
+                      return `
+                        <div class="relative rounded-xl overflow-hidden border-2 border-vintage-navy/30 bg-black aspect-video group">
+                          <video src="${anexo.url_ficheiro}" controls class="w-full h-full object-cover"></video>
+                          <button onclick="app.openLightbox('${anexo.url_ficheiro}', 'video')" class="absolute top-1 right-1 bg-vintage-navy/80 hover:bg-vintage-navy text-white text-xs px-2 py-0.5 rounded shadow">
+                            🔍 ${this.t('maximize')}
+                          </button>
+                        </div>
+                      `;
+                    } else {
+                      return `
+                        <div class="relative rounded-xl overflow-hidden border-2 border-vintage-gold/50 bg-vintage-bg aspect-video group cursor-pointer" onclick="app.openLightbox('${anexo.url_ficheiro}', 'imagem')">
+                          <img src="${anexo.url_ficheiro}" alt="Comprovativo" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
+                          <div class="absolute inset-0 bg-vintage-navy/20 group-hover:bg-transparent transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                            <span class="bg-vintage-paper text-vintage-navy text-xs font-bold px-2 py-1 rounded shadow">${this.t('viewImage')}</span>
+                          </div>
+                        </div>
+                      `;
+                    }
+                  }).join('')}
+                </div>
+              </div>
+            ` : ''}
+          `}
 
           <!-- Botões de Ação -->
           <div class="border-t border-vintage-navy/10 pt-4 mt-auto flex items-center justify-between gap-2">
@@ -514,7 +540,7 @@ class BatismoApp {
               </button>
             ` : `
               <span class="text-xs text-vintage-navy/50 italic">
-                ${isConcluida ? this.t('missionAccomplished') : this.t('awaitingProof')}
+                ${isConcluida ? this.t('missionAccomplished') : isBloqueada ? '🔒 ' + this.t('stampLockedText') : this.t('awaitingProof')}
               </span>
             `}
 
@@ -540,9 +566,26 @@ class BatismoApp {
   // MODAIS & OPERAÇÕES DE TAREFA (ADMIN)
   // ==========================================
 
+  populateParentTaskSelect(currentTaskId = null) {
+    const select = document.getElementById('taskTarefaPai');
+    if (!select) return;
+
+    const options = [
+      `<option value="" id="optNoParent">${this.t('noParentOpt')}</option>`
+    ];
+
+    this.tasks.forEach(t => {
+      if (currentTaskId && t.id === parseInt(currentTaskId, 10)) return; // não permitir selecionar a própria tarefa
+      options.push(`<option value="${t.id}">${this.escapeHtml(t.titulo)} (${t.estado === 'concluida' ? '✔' : '⏳'})</option>`);
+    });
+
+    select.innerHTML = options.join('');
+  }
+
   openNewTaskModal() {
     document.getElementById('taskForm').reset();
     document.getElementById('taskId').value = '';
+    this.populateParentTaskSelect(null);
     document.getElementById('taskModalTitle').innerText = this.t('newTaskModalTitle');
     this.openModal('taskModal');
   }
@@ -554,6 +597,10 @@ class BatismoApp {
     document.getElementById('taskId').value = task.id;
     document.getElementById('taskTitulo').value = task.titulo;
     document.getElementById('taskDescricao').value = task.descricao || '';
+    
+    this.populateParentTaskSelect(task.id);
+    document.getElementById('taskTarefaPai').value = task.tarefa_pai_id || '';
+
     document.getElementById('taskModalTitle').innerText = this.t('editTaskModalTitle');
     this.openModal('taskModal');
   }
@@ -563,6 +610,7 @@ class BatismoApp {
     const id = document.getElementById('taskId').value;
     const titulo = document.getElementById('taskTitulo').value.trim();
     const descricao = document.getElementById('taskDescricao').value.trim();
+    const tarefa_pai_id = document.getElementById('taskTarefaPai').value || null;
 
     const url = id ? `/api/tasks/${id}` : '/api/tasks';
     const method = id ? 'PUT' : 'POST';
@@ -574,7 +622,7 @@ class BatismoApp {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${this.token}`
         },
-        body: JSON.stringify({ titulo, descricao })
+        body: JSON.stringify({ titulo, descricao, tarefa_pai_id })
       });
 
       const data = await res.json();
