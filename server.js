@@ -7,13 +7,15 @@ const bcrypt = require('bcryptjs');
 const multer = require('multer');
 const { GoogleGenAI } = require('@google/genai');
 const https = require('https');
-
 const fs = require('fs');
 
-const batismoEnvPath = path.resolve(__dirname, 'batismo.env');
-if (fs.existsSync(batismoEnvPath)) {
-  dotenv.config({ path: batismoEnvPath });
-}
+// Carregar variáveis de ambiente de batismo.env ou .env
+['batismo.env', '.env'].forEach(envFileName => {
+  const envFilePath = path.resolve(__dirname, envFileName);
+  if (fs.existsSync(envFilePath)) {
+    dotenv.config({ path: envFilePath, override: true });
+  }
+});
 dotenv.config();
 
 const db = require('./database');
@@ -28,14 +30,54 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.
 let ai = null;
 if (GEMINI_API_KEY) {
   ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+  console.log('🤖 Google Gemini API Client inicializado com sucesso!');
+} else {
+  console.log('ℹ️ GEMINI_API_KEY não detetada. A utilizar motor com dicionário de gírias académicas.');
 }
 
 /**
- * Tradução de reserva via HTTP caso a chave do Gemini não esteja configurada ou ocorra erro
+ * Dicionário de expressões festivas e académicas portuguesas para tradução contextual
+ */
+function replacePortugueseSlang(text) {
+  if (!text) return '';
+  let updated = text;
+
+  const slangMap = [
+    { pt: /mamar (uma )?mini de penalti/gi, en: 'Chug a mini beer in one shot' },
+    { pt: /mamar (uma )?mini/gi, en: 'Chug a mini beer' },
+    { pt: /virar (uma )?mini de penalti/gi, en: 'Down a mini beer in one shot' },
+    { pt: /virar (uma )?mini/gi, en: 'Down a mini beer' },
+    { pt: /mini de penalti/gi, en: 'Mini beer in one shot' },
+    { pt: /de penalti/gi, en: 'in one shot' },
+    { pt: /imperiais bem geladas/gi, en: 'ice-cold draft beers' },
+    { pt: /imperiais/gi, en: 'draft beers' },
+    { pt: /imperial/gi, en: 'draft beer' },
+    { pt: /trajo académico/gi, en: 'traditional academic attire' },
+    { pt: /trajo tradicional/gi, en: 'traditional student attire' }
+  ];
+
+  slangMap.forEach(item => {
+    updated = updated.replace(item.pt, item.en);
+  });
+
+  return updated;
+}
+
+/**
+ * Tradução de reserva via HTTP com suporte a gírias académicas
  */
 function translateFreeHttp(text) {
   return new Promise((resolve) => {
     if (!text || !text.trim()) return resolve('');
+
+    // Pre-processar gírias conhecidas
+    const preProcessed = replacePortugueseSlang(text);
+
+    // Se já foi totalmente traduzido pelo dicionário de gírias
+    if (preProcessed !== text && !/[áàãâéêíóôõúç]/i.test(preProcessed)) {
+      return resolve(preProcessed);
+    }
+
     const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=pt&tl=en&dt=t&q=${encodeURIComponent(text)}`;
     
     https.get(url, (res) => {
@@ -44,51 +86,70 @@ function translateFreeHttp(text) {
       res.on('end', () => {
         try {
           const parsed = JSON.parse(data);
-          const translated = parsed[0].map(item => item[0]).join('');
+          let translated = parsed[0].map(item => item[0]).join('');
+          
+          // Aplicar pós-processamento de gírias se o Google Translate traduziu à letra
+          translated = translated.replace(/sucking a mini penalty/gi, 'Chug a mini beer in one shot');
+          translated = translated.replace(/mini penalty/gi, 'mini beer in one shot');
+          
           resolve(translated || text);
         } catch (e) {
-          resolve(text);
+          resolve(replacePortugueseSlang(text));
         }
       });
-    }).on('error', () => resolve(text));
+    }).on('error', () => resolve(replacePortugueseSlang(text)));
   });
 }
 
 /**
- * Traduz título e descrição de tarefas usando Gemini API ou motor de tradução de reserva
+ * Traduz título e descrição de tarefas usando Gemini API (gemini-2.0-flash / gemini-1.5-flash) ou motor contextual
  */
 async function translateTaskWithGemini(titulo, descricao) {
   if (ai) {
-    try {
-      console.log('🤖 A traduzir tarefa via Gemini API (@google/genai)...');
-      const prompt = `Traduz o seguinte título e descrição de uma tarefa para Inglês. O evento chama-se 'O Batismo Português' e é jovem/descontraído, por isso traduz gírias ou expressões portuguesas para equivalentes naturais em inglês. Devolve apenas um JSON com os campos 'titulo_en' e 'descricao_en'.
+    const modelsToTry = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+    
+    const prompt = `És um tradutor especialista em cultura universitária, festas e tradições académicas portuguesas (como o 'Batismo Português', 'Praxe' e convívios de estudantes).
+Traduz o seguinte título e descrição de uma tarefa de Português para Inglês.
+
+Diretrizes de tradução para expressões e gírias de festa em Portugal:
+- "Mamar uma mini de penalti" / "Virar uma mini" -> "Chug a mini beer in one shot" / "Down a small beer"
+- "Penalti" -> "Chug / One-shot drink"
+- "Imperial" / "Fino" -> "Draft beer / Cold beer"
+- "Bacalhau" -> "Traditional codfish"
+- "Trajo" -> "Academic outfit / Traditional student attire"
+
+Devolve APENAS um objeto JSON com as chaves "titulo_en" e "descricao_en".
 
 Título: ${titulo}
 Descrição: ${descricao || ''}`;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json'
-        }
-      });
+    for (const modelName of modelsToTry) {
+      try {
+        console.log(`🤖 A traduzir tarefa via Gemini API (${modelName})...`);
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json'
+          }
+        });
 
-      const responseText = response.text;
-      const parsed = JSON.parse(responseText);
+        const responseText = response.text;
+        const parsed = JSON.parse(responseText);
 
-      console.log('✨ Tradução Gemini concluída com sucesso!');
-      return {
-        titulo_en: parsed.titulo_en || titulo,
-        descricao_en: parsed.descricao_en || (descricao || '')
-      };
-    } catch (err) {
-      console.error('⚠️ Erro na chamada Gemini API, a utilizar motor de reserva:', err.message);
+        console.log(`✨ Tradução Gemini (${modelName}) concluída com sucesso!`);
+        return {
+          titulo_en: parsed.titulo_en || titulo,
+          descricao_en: parsed.descricao_en || (descricao || '')
+        };
+      } catch (err) {
+        console.error(`⚠️ Erro no modelo ${modelName}:`, err.message);
+      }
     }
   }
 
-  // Fallback automático de tradução
-  console.log('🌐 A traduzir tarefa via motor automático de reserva (PT -> EN)...');
+  // Fallback automático de tradução se a API do Gemini falhar ou não tiver chave
+  console.log('🌐 A traduzir tarefa via motor contextual de reserva (PT -> EN)...');
   const titulo_en = await translateFreeHttp(titulo);
   const descricao_en = await translateFreeHttp(descricao);
   return { titulo_en, descricao_en };
