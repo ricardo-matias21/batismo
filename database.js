@@ -28,12 +28,25 @@ if (!isD1Configured) {
 }
 
 /**
+ * Limpa instrução SQL para envio correto à API REST da Cloudflare D1
+ */
+function cleanSql(sql) {
+  return sql
+    .replace(/--.*$/gm, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/;$/, '');
+}
+
+/**
  * Executa query SQL na API REST da Cloudflare D1
  */
 function queryD1Http(sql, params = []) {
   return new Promise((resolve, reject) => {
+    const cleanedSql = cleanSql(sql);
     const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/d1/database/${CF_DATABASE_ID}/query`;
-    const bodyData = JSON.stringify({ sql, params });
+    const bodyData = JSON.stringify({ sql: cleanedSql, params });
 
     const req = https.request(url, {
       method: 'POST',
@@ -50,7 +63,7 @@ function queryD1Http(sql, params = []) {
           const parsed = JSON.parse(responseBody);
           if (!parsed.success) {
             const errMsg = parsed.errors?.[0]?.message || `Erro na Cloudflare D1 API (HTTP ${res.statusCode})`;
-            console.error(`❌ ERRO CLOUDFLARE D1 API: ${errMsg}`);
+            console.error(`❌ ERRO CLOUDFLARE D1 API: ${errMsg} [SQL: ${cleanedSql}]`);
             return reject(new Error(errMsg));
           }
           const resultObj = parsed.result?.[0] || {};
@@ -152,10 +165,10 @@ async function initDatabase() {
         nome TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
         papel TEXT CHECK(papel IN ('admin', 'utilizador')) NOT NULL DEFAULT 'utilizador'
-      );
+      )
     `);
   } catch (err) {
-    console.error('⚠️ Erro ao criar tabela utilizadores na D1:', err.message);
+    console.error('⚠️ Nota ao criar tabela utilizadores:', err.message);
   }
 
   // 2. Tabela tarefas
@@ -174,10 +187,10 @@ async function initDatabase() {
         FOREIGN KEY (atribuida_a) REFERENCES utilizadores(id) ON DELETE SET NULL,
         FOREIGN KEY (criada_por) REFERENCES utilizadores(id) ON DELETE SET NULL,
         FOREIGN KEY (tarefa_pai_id) REFERENCES tarefas(id) ON DELETE SET NULL
-      );
+      )
     `);
   } catch (err) {
-    console.error('⚠️ Erro ao criar tabela tarefas na D1:', err.message);
+    console.error('⚠️ Nota ao criar tabela tarefas:', err.message);
   }
 
   // Migração automática de colunas para SQLite local
@@ -187,13 +200,13 @@ async function initDatabase() {
       const colNames = columns.map(col => col.name);
 
       if (!colNames.includes('tarefa_pai_id')) {
-        await dbAsync.exec('ALTER TABLE tarefas ADD COLUMN tarefa_pai_id INTEGER REFERENCES tarefas(id) ON DELETE SET NULL;');
+        await dbAsync.exec('ALTER TABLE tarefas ADD COLUMN tarefa_pai_id INTEGER REFERENCES tarefas(id) ON DELETE SET NULL');
       }
       if (!colNames.includes('titulo_en')) {
-        await dbAsync.exec('ALTER TABLE tarefas ADD COLUMN titulo_en TEXT;');
+        await dbAsync.exec('ALTER TABLE tarefas ADD COLUMN titulo_en TEXT');
       }
       if (!colNames.includes('descricao_en')) {
-        await dbAsync.exec('ALTER TABLE tarefas ADD COLUMN descricao_en TEXT;');
+        await dbAsync.exec('ALTER TABLE tarefas ADD COLUMN descricao_en TEXT');
       }
     } catch (err) {
       console.error('Nota na verificação de migração local:', err.message);
@@ -210,10 +223,10 @@ async function initDatabase() {
         tipo_ficheiro TEXT CHECK(tipo_ficheiro IN ('imagem', 'video')) NOT NULL,
         criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (tarefa_id) REFERENCES tarefas(id) ON DELETE CASCADE
-      );
+      )
     `);
   } catch (err) {
-    console.error('⚠️ Erro ao criar tabela anexos_tarefa na D1:', err.message);
+    console.error('⚠️ Nota ao criar tabela anexos_tarefa:', err.message);
   }
 
   // Seed inicial de utilizadores caso a tabela utilizadores esteja vazia
@@ -236,7 +249,7 @@ async function initDatabase() {
         ['thomaz', hashUser1, 'utilizador']
       );
 
-      console.log('✅ Utilizadores semeados com sucesso na D1! (Admin: admin / osm2026 | User: thomaz / soutuga)');
+      console.log('✅ Utilizadores semeados com sucesso! (Admin: admin / osm2026 | User: thomaz / soutuga)');
     }
   } catch (err) {
     console.error('Nota na verificação de utilizadores iniciais:', err.message);

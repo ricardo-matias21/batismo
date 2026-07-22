@@ -3,70 +3,82 @@ const fs = require('fs');
 const path = require('path');
 const dotenv = require('dotenv');
 
-const batismoEnvPath = path.resolve(__dirname, 'batismo.env');
-if (fs.existsSync(batismoEnvPath)) {
-  dotenv.config({ path: batismoEnvPath });
-}
+// Carregar variáveis de ambiente de batismo.env ou .env
+['batismo.env', '.env'].forEach(envFileName => {
+  const envFilePath = path.resolve(__dirname, envFileName);
+  if (fs.existsSync(envFilePath)) {
+    dotenv.config({ path: envFilePath, override: true });
+  }
+});
 dotenv.config();
 
-const {
-  R2_ACCOUNT_ID,
-  R2_ACCESS_KEY_ID,
-  R2_SECRET_ACCESS_KEY,
-  R2_BUCKET_NAME,
-  R2_PUBLIC_URL
-} = process.env;
+/**
+ * Obtém credenciais R2 atualizadas das variáveis de ambiente
+ */
+function getR2Credentials() {
+  const accountId = (process.env.R2_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID || process.env.CF_ACCOUNT_ID || '').trim();
+  const accessKeyId = (process.env.R2_ACCESS_KEY_ID || process.env.CLOUDFLARE_R2_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID || '').trim();
+  const secretAccessKey = (process.env.R2_SECRET_ACCESS_KEY || process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY || '').trim();
+  const bucketName = (process.env.R2_BUCKET_NAME || process.env.CLOUDFLARE_R2_BUCKET_NAME || process.env.BUCKET_NAME || '').trim();
+  const publicUrl = (process.env.R2_PUBLIC_URL || process.env.CLOUDFLARE_R2_PUBLIC_URL || '').trim();
 
-const isR2Configured = R2_ACCOUNT_ID && R2_ACCESS_KEY_ID && R2_SECRET_ACCESS_KEY && R2_BUCKET_NAME;
-
-let s3Client = null;
-if (isR2Configured) {
-  s3Client = new S3Client({
-    region: 'auto',
-    endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-    credentials: {
-      accessKeyId: R2_ACCESS_KEY_ID,
-      secretAccessKey: R2_SECRET_ACCESS_KEY,
-    },
-  });
+  const isConfigured = !!(accountId && accessKeyId && secretAccessKey && bucketName);
+  return { accountId, accessKeyId, secretAccessKey, bucketName, publicUrl, isConfigured };
 }
 
 /**
- * Uploads a file buffer or stream to Cloudflare R2 or local fallback
- * @param {Object} file Multer file object
- * @returns {Promise<string>} Public URL of the uploaded file
+ * Upload de ficheiro para Cloudflare R2 ou armazenamento local de reserva
+ * @param {Object} file Ficheiro recebido do Multer
+ * @returns {Promise<string>} URL público do ficheiro
  */
 async function uploadFile(file) {
   const extension = path.extname(file.originalname) || '';
   const fileKey = `batismo_${Date.now()}_${Math.random().toString(36).substring(2, 8)}${extension}`;
+  
+  const r2 = getR2Credentials();
 
-  if (isR2Configured && s3Client) {
-    console.log(`☁️ A carregar ficheiro para Cloudflare R2 (${R2_BUCKET_NAME})...`);
-    const command = new PutObjectCommand({
-      Bucket: R2_BUCKET_NAME,
-      Key: fileKey,
-      Body: file.buffer,
-      ContentType: file.mimetype,
-    });
+  if (r2.isConfigured) {
+    console.log(`☁️ A carregar ficheiro comprovativo para Cloudflare R2 (${r2.bucketName})...`);
+    try {
+      const s3Client = new S3Client({
+        region: 'auto',
+        endpoint: `https://${r2.accountId}.r2.cloudflarestorage.com`,
+        credentials: {
+          accessKeyId: r2.accessKeyId,
+          secretAccessKey: r2.secretAccessKey,
+        },
+      });
 
-    await s3Client.send(command);
-    const baseUrl = R2_PUBLIC_URL ? R2_PUBLIC_URL.replace(/\/$/, '') : `https://${R2_BUCKET_NAME}.${R2_ACCOUNT_ID}.r2.dev`;
-    return `${baseUrl}/${fileKey}`;
-  } else {
-    // Armazenamento local de reserva (public/uploads/)
-    console.log('📁 Armazenamento R2 não configurado. Guardando ficheiro localmente em public/uploads/');
-    const uploadsDir = path.resolve(__dirname, 'public', 'uploads');
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
+      const command = new PutObjectCommand({
+        Bucket: r2.bucketName,
+        Key: fileKey,
+        Body: file.buffer,
+        ContentType: file.mimetype,
+      });
+
+      await s3Client.send(command);
+      console.log(`✨ Ficheiro enviado com sucesso para a Cloudflare R2: ${fileKey}`);
+
+      const baseUrl = r2.publicUrl ? r2.publicUrl.replace(/\/$/, '') : `https://${r2.bucketName}.${r2.accountId}.r2.dev`;
+      return `${baseUrl}/${fileKey}`;
+    } catch (err) {
+      console.error('❌ Erro no upload para Cloudflare R2, a utilizar armazenamento local como reserva:', err.message);
     }
-
-    const localFilePath = path.join(uploadsDir, fileKey);
-    fs.writeFileSync(localFilePath, file.buffer);
-    return `/uploads/${fileKey}`;
   }
+
+  // Armazenamento local de reserva (public/uploads/)
+  console.log('📁 Armazenamento R2 não configurado ou com erro. Guardando ficheiro localmente em public/uploads/');
+  const uploadsDir = path.resolve(__dirname, 'public', 'uploads');
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+
+  const localFilePath = path.join(uploadsDir, fileKey);
+  fs.writeFileSync(localFilePath, file.buffer);
+  return `/uploads/${fileKey}`;
 }
 
 module.exports = {
   uploadFile,
-  isR2Configured: !!isR2Configured,
+  isR2Configured: () => getR2Credentials().isConfigured,
 };
