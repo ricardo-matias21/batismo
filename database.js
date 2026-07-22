@@ -2,56 +2,142 @@ const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcryptjs');
 const path = require('path');
 const dotenv = require('dotenv');
-
+const https = require('https');
 const fs = require('fs');
 
-const batismoEnvPath = path.resolve(__dirname, 'batismo.env');
-if (fs.existsSync(batismoEnvPath)) {
-  dotenv.config({ path: batismoEnvPath });
-}
+// Carregar variáveis de ambiente de batismo.env ou .env
+['batismo.env', '.env'].forEach(envFileName => {
+  const envFilePath = path.resolve(__dirname, envFileName);
+  if (fs.existsSync(envFilePath)) {
+    dotenv.config({ path: envFilePath, override: true });
+  }
+});
 dotenv.config();
 
-const dbPath = path.resolve(__dirname, process.env.DB_FILE || 'database.sqlite');
-const db = new sqlite3.Database(dbPath);
+// Detetar credenciais da Cloudflare D1
+const CF_ACCOUNT_ID = (process.env.CLOUDFLARE_ACCOUNT_ID || process.env.CF_ACCOUNT_ID || process.env.D1_ACCOUNT_ID || '').trim();
+const CF_DATABASE_ID = (process.env.CLOUDFLARE_DATABASE_ID || process.env.CF_DATABASE_ID || process.env.D1_DATABASE_ID || '').trim();
+const CF_API_TOKEN = (process.env.CLOUDFLARE_API_TOKEN || process.env.CF_API_TOKEN || process.env.D1_API_TOKEN || process.env.CLOUDFLARE_TOKEN || '').trim();
 
-// Wrapper Promisificado para SQLite / D1
+const isD1Configured = !!(CF_ACCOUNT_ID && CF_DATABASE_ID && CF_API_TOKEN);
+
+let localDb = null;
+if (!isD1Configured) {
+  const dbPath = path.resolve(__dirname, process.env.DB_FILE || 'database.sqlite');
+  localDb = new sqlite3.Database(dbPath);
+}
+
+/**
+ * Executa query SQL na API REST da Cloudflare D1
+ */
+function queryD1Http(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/d1/database/${CF_DATABASE_ID}/query`;
+    const bodyData = JSON.stringify({ sql, params });
+
+    const req = https.request(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${CF_API_TOKEN}`,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(bodyData)
+      }
+    }, (res) => {
+      let responseBody = '';
+      res.on('data', chunk => responseBody += chunk);
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(responseBody);
+          if (!parsed.success) {
+            const errMsg = parsed.errors?.[0]?.message || 'Erro na Cloudflare D1 API';
+            return reject(new Error(errMsg));
+          }
+          const resultObj = parsed.result?.[0] || {};
+          resolve({
+            results: resultObj.results || [],
+            success: resultObj.success !== false,
+            meta: resultObj.meta || {}
+          });
+        } catch (e) {
+          reject(new Error('Erro ao interpretar resposta JSON da Cloudflare D1 API: ' + responseBody));
+        }
+      });
+    });
+
+    req.on('error', err => reject(err));
+    req.write(bodyData);
+    req.end();
+  });
+}
+
+// Wrapper Unificado para Cloudflare D1 REST API e SQLite Local
 const dbAsync = {
-  run(sql, params = []) {
-    return new Promise((resolve, reject) => {
-      db.run(sql, params, function (err) {
-        if (err) return reject(err);
-        resolve({ lastInsertRowid: this.lastID, changes: this.changes });
+  async run(sql, params = []) {
+    if (isD1Configured) {
+      const d1 = await queryD1Http(sql, params);
+      return {
+        lastInsertRowid: d1.meta.last_row_id || d1.meta.last_insert_rowid || 0,
+        changes: d1.meta.changes || 0
+      };
+    } else {
+      return new Promise((resolve, reject) => {
+        localDb.run(sql, params, function (err) {
+          if (err) return reject(err);
+          resolve({ lastInsertRowid: this.lastID, changes: this.changes });
+        });
       });
-    });
+    }
   },
-  get(sql, params = []) {
-    return new Promise((resolve, reject) => {
-      db.get(sql, params, (err, row) => {
-        if (err) return reject(err);
-        resolve(row);
+
+  async get(sql, params = []) {
+    if (isD1Configured) {
+      const d1 = await queryD1Http(sql, params);
+      return (d1.results && d1.results.length > 0) ? d1.results[0] : null;
+    } else {
+      return new Promise((resolve, reject) => {
+        localDb.get(sql, params, (err, row) => {
+          if (err) return reject(err);
+          resolve(row || null);
+        });
       });
-    });
+    }
   },
-  all(sql, params = []) {
-    return new Promise((resolve, reject) => {
-      db.all(sql, params, (err, rows) => {
-        if (err) return reject(err);
-        resolve(rows || []);
+
+  async all(sql, params = []) {
+    if (isD1Configured) {
+      const d1 = await queryD1Http(sql, params);
+      return d1.results || [];
+    } else {
+      return new Promise((resolve, reject) => {
+        localDb.all(sql, params, (err, rows) => {
+          if (err) return reject(err);
+          resolve(rows || []);
+        });
       });
-    });
+    }
   },
-  exec(sql) {
-    return new Promise((resolve, reject) => {
-      db.exec(sql, (err) => {
-        if (err) return reject(err);
-        resolve();
+
+  async exec(sql) {
+    if (isD1Configured) {
+      await queryD1Http(sql, []);
+    } else {
+      return new Promise((resolve, reject) => {
+        localDb.exec(sql, (err) => {
+          if (err) return reject(err);
+          resolve();
+        });
       });
-    });
+    }
   }
 };
 
 async function initDatabase() {
-  await dbAsync.run('PRAGMA foreign_keys = ON');
+  if (isD1Configured) {
+    console.log(`☁️ A ligar diretamente à Cloudflare D1 em Produção (Database ID: ${CF_DATABASE_ID})...`);
+  } else {
+    console.log('📁 Credenciais D1 não detetadas. A utilizar SQLite local (database.sqlite)...');
+    await dbAsync.run('PRAGMA foreign_keys = ON');
+  }
 
   // 1. Tabela utilizadores
   await dbAsync.exec(`
@@ -81,25 +167,24 @@ async function initDatabase() {
     );
   `);
 
-  // Migração automática de colunas tarefa_pai_id, titulo_en e descricao_en
-  try {
-    const columns = await dbAsync.all('PRAGMA table_info(tarefas)');
-    const colNames = columns.map(col => col.name);
+  // Migração automática de colunas para SQLite local
+  if (!isD1Configured) {
+    try {
+      const columns = await dbAsync.all('PRAGMA table_info(tarefas)');
+      const colNames = columns.map(col => col.name);
 
-    if (!colNames.includes('tarefa_pai_id')) {
-      console.log('🔄 A adicionar coluna tarefa_pai_id à tabela tarefas...');
-      await dbAsync.exec('ALTER TABLE tarefas ADD COLUMN tarefa_pai_id INTEGER REFERENCES tarefas(id) ON DELETE SET NULL;');
+      if (!colNames.includes('tarefa_pai_id')) {
+        await dbAsync.exec('ALTER TABLE tarefas ADD COLUMN tarefa_pai_id INTEGER REFERENCES tarefas(id) ON DELETE SET NULL;');
+      }
+      if (!colNames.includes('titulo_en')) {
+        await dbAsync.exec('ALTER TABLE tarefas ADD COLUMN titulo_en TEXT;');
+      }
+      if (!colNames.includes('descricao_en')) {
+        await dbAsync.exec('ALTER TABLE tarefas ADD COLUMN descricao_en TEXT;');
+      }
+    } catch (err) {
+      console.error('Nota na verificação de migração local:', err.message);
     }
-    if (!colNames.includes('titulo_en')) {
-      console.log('🔄 A adicionar coluna titulo_en à tabela tarefas...');
-      await dbAsync.exec('ALTER TABLE tarefas ADD COLUMN titulo_en TEXT;');
-    }
-    if (!colNames.includes('descricao_en')) {
-      console.log('🔄 A adicionar coluna descricao_en à tabela tarefas...');
-      await dbAsync.exec('ALTER TABLE tarefas ADD COLUMN descricao_en TEXT;');
-    }
-  } catch (err) {
-    console.error('Nota na verificação de migração de colunas:', err.message);
   }
 
   // 3. Tabela anexos_tarefa
@@ -114,25 +199,30 @@ async function initDatabase() {
     );
   `);
 
-  // Seed inicial de contas caso a tabela utilizadores esteja vazia
-  const { count } = await dbAsync.get('SELECT COUNT(*) as count FROM utilizadores');
+  // Seed inicial de utilizadores caso a tabela utilizadores esteja vazia
+  try {
+    const row = await dbAsync.get('SELECT COUNT(*) as count FROM utilizadores');
+    const count = row ? row.count : 0;
 
-  if (count === 0) {
-    console.log('🌱 A semear utilizadores iniciais na base de dados (D1/SQLite)...');
-    
-    const hashAdmin = bcrypt.hashSync('osm2026', 10);
-    const hashUser1 = bcrypt.hashSync('soutuga', 10);
+    if (count === 0) {
+      console.log('🌱 A semear utilizadores iniciais (admin e thomaz)...');
+      
+      const hashAdmin = bcrypt.hashSync('osm2026', 10);
+      const hashUser1 = bcrypt.hashSync('soutuga', 10);
 
-    await dbAsync.run(
-      'INSERT INTO utilizadores (nome, password_hash, papel) VALUES (?, ?, ?)',
-      ['admin', hashAdmin, 'admin']
-    );
-    await dbAsync.run(
-      'INSERT INTO utilizadores (nome, password_hash, papel) VALUES (?, ?, ?)',
-      ['thomaz', hashUser1, 'utilizador']
-    );
+      await dbAsync.run(
+        'INSERT INTO utilizadores (nome, password_hash, papel) VALUES (?, ?, ?)',
+        ['admin', hashAdmin, 'admin']
+      );
+      await dbAsync.run(
+        'INSERT INTO utilizadores (nome, password_hash, papel) VALUES (?, ?, ?)',
+        ['thomaz', hashUser1, 'utilizador']
+      );
 
-    console.log('✅ Utilizadores semeados com sucesso! (Admin: admin / osm2026 | User: thomaz / soutuga)');
+      console.log('✅ Utilizadores semeados com sucesso! (Admin: admin / osm2026 | User: thomaz / soutuga)');
+    }
+  } catch (err) {
+    console.error('Nota na verificação de utilizadores iniciais:', err.message);
   }
 }
 
