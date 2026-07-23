@@ -16,14 +16,21 @@ dotenv.config();
  * Obtém credenciais R2 atualizadas das variáveis de ambiente
  */
 function getR2Credentials() {
-  const accountId = (process.env.R2_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID || process.env.CF_ACCOUNT_ID || '').trim();
-  const accessKeyId = (process.env.R2_ACCESS_KEY_ID || process.env.CLOUDFLARE_R2_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID || '').trim();
-  const secretAccessKey = (process.env.R2_SECRET_ACCESS_KEY || process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY || '').trim();
-  const bucketName = (process.env.R2_BUCKET_NAME || process.env.CLOUDFLARE_R2_BUCKET_NAME || process.env.BUCKET_NAME || '').trim();
-  const publicUrl = (process.env.R2_PUBLIC_URL || process.env.CLOUDFLARE_R2_PUBLIC_URL || '').trim();
+  let accountId = (process.env.R2_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID || process.env.CF_ACCOUNT_ID || '').trim();
+  
+  const endpoint = (process.env.CLOUDFLARE_R2_ENDPOINT || process.env.R2_ENDPOINT || '').trim();
+  if (!accountId && endpoint) {
+    const match = endpoint.match(/https:\/\/([a-f0-9]+)\.r2\.cloudflarestorage\.com/i);
+    if (match) accountId = match[1];
+  }
+
+  const accessKeyId = (process.env.CLOUDFLARE_R2_ACCESS_KEY_ID || process.env.R2_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID || '').trim();
+  const secretAccessKey = (process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY || process.env.R2_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY || '').trim();
+  const bucketName = (process.env.CLOUDFLARE_R2_BUCKET_NAME || process.env.R2_BUCKET_NAME || process.env.BUCKET_NAME || 'batismo').trim();
+  const publicUrl = (process.env.CLOUDFLARE_R2_PUBLIC_URL || process.env.R2_PUBLIC_URL || '').trim();
 
   const isConfigured = !!(accountId && accessKeyId && secretAccessKey && bucketName);
-  return { accountId, accessKeyId, secretAccessKey, bucketName, publicUrl, isConfigured };
+  return { accountId, accessKeyId, secretAccessKey, bucketName, publicUrl, endpoint, isConfigured };
 }
 
 /**
@@ -40,9 +47,10 @@ async function uploadFile(file) {
   if (r2.isConfigured) {
     console.log(`☁️ A carregar ficheiro comprovativo para Cloudflare R2 (${r2.bucketName})...`);
     try {
+      const endpointUrl = r2.endpoint || `https://${r2.accountId}.r2.cloudflarestorage.com`;
       const s3Client = new S3Client({
         region: 'auto',
-        endpoint: `https://${r2.accountId}.r2.cloudflarestorage.com`,
+        endpoint: endpointUrl,
         credentials: {
           accessKeyId: r2.accessKeyId,
           secretAccessKey: r2.secretAccessKey,

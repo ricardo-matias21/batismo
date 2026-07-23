@@ -15,7 +15,17 @@ const fs = require('fs');
 dotenv.config();
 
 // Detetar credenciais da Cloudflare D1
-const CF_ACCOUNT_ID = (process.env.CLOUDFLARE_ACCOUNT_ID || process.env.CF_ACCOUNT_ID || process.env.D1_ACCOUNT_ID || '').trim();
+let CF_ACCOUNT_ID = (process.env.CLOUDFLARE_ACCOUNT_ID || process.env.CF_ACCOUNT_ID || process.env.D1_ACCOUNT_ID || '').trim();
+
+// Tentar extrair Account ID do endpoint da R2 se não estiver definido explicitamente
+if (!CF_ACCOUNT_ID && process.env.CLOUDFLARE_R2_ENDPOINT) {
+  const match = process.env.CLOUDFLARE_R2_ENDPOINT.match(/https:\/\/([a-f0-9]+)\.r2\.cloudflarestorage\.com/i);
+  if (match) {
+    CF_ACCOUNT_ID = match[1];
+    console.log(`💡 Account ID extraído do R2 Endpoint: ${CF_ACCOUNT_ID}`);
+  }
+}
+
 const CF_DATABASE_ID = (process.env.CLOUDFLARE_DATABASE_ID || process.env.CF_DATABASE_ID || process.env.D1_DATABASE_ID || '').trim();
 const CF_API_TOKEN = (process.env.CLOUDFLARE_API_TOKEN || process.env.CF_API_TOKEN || process.env.D1_API_TOKEN || process.env.CLOUDFLARE_TOKEN || '').trim();
 
