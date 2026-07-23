@@ -53,7 +53,8 @@ function replacePortugueseSlang(text) {
     { pt: /imperiais/gi, en: 'draft beers' },
     { pt: /imperial/gi, en: 'draft beer' },
     { pt: /trajo académico/gi, en: 'traditional academic attire' },
-    { pt: /trajo tradicional/gi, en: 'traditional student attire' }
+    { pt: /trajo tradicional/gi, en: 'traditional student attire' },
+    { pt: /o batismo português/gi, en: 'The Portuguese Baptism' }
   ];
 
   slangMap.forEach(item => {
@@ -102,33 +103,41 @@ function translateFreeHttp(text) {
 }
 
 /**
- * Traduz título e descrição de tarefas usando Google Cloud Translation API ou motor contextual
+ * Traduz título e descrição de tarefas usando Google Cloud Translation API (modelo NMT otimizado) ou motor contextual de reserva
  */
 async function translateTaskWithGoogle(titulo, descricao) {
+  const translateOptions = {
+    from: 'pt',
+    to: 'en',
+    model: 'nmt'
+  };
+
   if (translator) {
     try {
-      console.log('🌐 A traduzir tarefa via Google Cloud Translation API (PT -> EN)...');
+      console.log('🌐 A traduzir tarefa via Google Cloud Translation API (PT -> EN, modelo NMT)...');
       let titulo_en = titulo;
       let descricao_en = descricao || '';
 
       if (titulo && titulo.trim()) {
-        const [transTitle] = await translator.translate(titulo, 'en');
+        const prepTitulo = replacePortugueseSlang(titulo);
+        const [transTitle] = await translator.translate(prepTitulo, translateOptions);
         titulo_en = transTitle;
       }
       if (descricao && descricao.trim()) {
-        const [transDesc] = await translator.translate(descricao, 'en');
+        const prepDesc = replacePortugueseSlang(descricao);
+        const [transDesc] = await translator.translate(prepDesc, translateOptions);
         descricao_en = transDesc;
       }
 
-      console.log('✨ Tradução Google Cloud Translation concluída com sucesso!');
+      console.log('✨ Tradução Google Cloud Translation (NMT) concluída com sucesso!');
       return { titulo_en, descricao_en };
     } catch (err) {
-      console.error('⚠️ Erro na Google Cloud Translation API:', err.message);
+      console.error('⚠️ Erro na Google Cloud Translation API (NMT):', err.message);
     }
   }
 
   // Fallback automático de tradução se a API do Google Cloud Translation falhar ou não tiver chave
-  console.log('🌐 A traduzir tarefa via motor contextual de reserva (PT -> EN)...');
+  console.log('🌐 A traduzir tarefa via motor contextual NMT de reserva (PT -> EN)...');
   const titulo_en = await translateFreeHttp(titulo);
   const descricao_en = await translateFreeHttp(descricao);
   return { titulo_en, descricao_en };
