@@ -5,7 +5,7 @@ const path = require('path');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const multer = require('multer');
-const { GoogleGenAI } = require('@google/genai');
+const { v2 } = require('@google-cloud/translate');
 const https = require('https');
 const fs = require('fs');
 
@@ -25,14 +25,14 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'o_batismo_portugues_segredo_super_seguro_2026';
 
-// Google Gemini API Client
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim();
-let ai = null;
-if (GEMINI_API_KEY) {
-  ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-  console.log('🤖 Google Gemini API Client inicializado com sucesso!');
+// Google Cloud Translation API Client
+const GOOGLE_TRANSLATE_API_KEY = (process.env.GOOGLE_TRANSLATE_API_KEY || '').trim();
+let translator = null;
+if (GOOGLE_TRANSLATE_API_KEY) {
+  translator = new v2.Translate({ key: GOOGLE_TRANSLATE_API_KEY });
+  console.log('🌐 Google Cloud Translation API Client inicializado com sucesso!');
 } else {
-  console.log('ℹ️ GEMINI_API_KEY não detetada. A utilizar motor com dicionário de gírias académicas.');
+  console.log('ℹ️ GOOGLE_TRANSLATE_API_KEY não detetada. A utilizar motor com dicionário de gírias académicas.');
 }
 
 /**
@@ -102,53 +102,32 @@ function translateFreeHttp(text) {
 }
 
 /**
- * Traduz título e descrição de tarefas usando Gemini API (gemini-2.0-flash / gemini-1.5-flash) ou motor contextual
+ * Traduz título e descrição de tarefas usando Google Cloud Translation API ou motor contextual
  */
-async function translateTaskWithGemini(titulo, descricao) {
-  if (ai) {
-    const modelsToTry = ['gemini-2.0-flash', 'gemini-1.5-flash'];
-    
-    const prompt = `És um tradutor especialista em cultura universitária, festas e tradições académicas portuguesas (como o 'Batismo Português', 'Praxe' e convívios de estudantes).
-Traduz o seguinte título e descrição de uma tarefa de Português para Inglês.
+async function translateTaskWithGoogle(titulo, descricao) {
+  if (translator) {
+    try {
+      console.log('🌐 A traduzir tarefa via Google Cloud Translation API (PT -> EN)...');
+      let titulo_en = titulo;
+      let descricao_en = descricao || '';
 
-Diretrizes de tradução para expressões e gírias de festa em Portugal:
-- "Mamar uma mini de penalti" / "Virar uma mini" -> "Chug a mini beer in one shot" / "Down a small beer"
-- "Penalti" -> "Chug / One-shot drink"
-- "Imperial" / "Fino" -> "Draft beer / Cold beer"
-- "Bacalhau" -> "Traditional codfish"
-- "Trajo" -> "Academic outfit / Traditional student attire"
-
-Devolve APENAS um objeto JSON com as chaves "titulo_en" e "descricao_en".
-
-Título: ${titulo}
-Descrição: ${descricao || ''}`;
-
-    for (const modelName of modelsToTry) {
-      try {
-        console.log(`🤖 A traduzir tarefa via Gemini API (${modelName})...`);
-        const response = await ai.models.generateContent({
-          model: modelName,
-          contents: prompt,
-          config: {
-            responseMimeType: 'application/json'
-          }
-        });
-
-        const responseText = response.text;
-        const parsed = JSON.parse(responseText);
-
-        console.log(`✨ Tradução Gemini (${modelName}) concluída com sucesso!`);
-        return {
-          titulo_en: parsed.titulo_en || titulo,
-          descricao_en: parsed.descricao_en || (descricao || '')
-        };
-      } catch (err) {
-        console.error(`⚠️ Erro no modelo ${modelName}:`, err.message);
+      if (titulo && titulo.trim()) {
+        const [transTitle] = await translator.translate(titulo, 'en');
+        titulo_en = transTitle;
       }
+      if (descricao && descricao.trim()) {
+        const [transDesc] = await translator.translate(descricao, 'en');
+        descricao_en = transDesc;
+      }
+
+      console.log('✨ Tradução Google Cloud Translation concluída com sucesso!');
+      return { titulo_en, descricao_en };
+    } catch (err) {
+      console.error('⚠️ Erro na Google Cloud Translation API:', err.message);
     }
   }
 
-  // Fallback automático de tradução se a API do Gemini falhar ou não tiver chave
+  // Fallback automático de tradução se a API do Google Cloud Translation falhar ou não tiver chave
   console.log('🌐 A traduzir tarefa via motor contextual de reserva (PT -> EN)...');
   const titulo_en = await translateFreeHttp(titulo);
   const descricao_en = await translateFreeHttp(descricao);
@@ -323,7 +302,7 @@ app.post('/api/tasks', autenticarToken, apenasAdmin, async (req, res) => {
 
   try {
     // Fazer tradução automática para Inglês
-    const { titulo_en, descricao_en } = await translateTaskWithGemini(titulo, descricao);
+    const { titulo_en, descricao_en } = await translateTaskWithGoogle(titulo, descricao);
 
     const result = await db.run(
       `INSERT INTO tarefas (titulo, descricao, titulo_en, descricao_en, atribuida_a, criada_por, tarefa_pai_id, estado) 
@@ -373,7 +352,7 @@ app.put('/api/tasks/:id', autenticarToken, async (req, res) => {
 
     // Recalcular tradução se o admin alterou título ou descrição
     if (isAdmin && (titulo !== undefined || descricao !== undefined)) {
-      const translation = await translateTaskWithGemini(novoTitulo, novaDescricao);
+      const translation = await translateTaskWithGoogle(novoTitulo, novaDescricao);
       novoTituloEn = translation.titulo_en;
       novaDescricaoEn = translation.descricao_en;
     }
