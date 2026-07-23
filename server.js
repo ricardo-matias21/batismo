@@ -9,14 +9,14 @@ const { GoogleGenAI } = require('@google/genai');
 const https = require('https');
 const fs = require('fs');
 
-// Carregar variáveis de ambiente de batismo.env ou .env
-['batismo.env', '.env'].forEach(envFileName => {
+// Carregar variáveis de ambiente: .env primeiro (valores base), batismo.env depois (sobrescreve)
+dotenv.config(); // .env base
+['batismo.env'].forEach(envFileName => {
   const envFilePath = path.resolve(__dirname, envFileName);
   if (fs.existsSync(envFilePath)) {
-    dotenv.config({ path: envFilePath, override: true });
+    dotenv.config({ path: envFilePath, override: true }); // batismo.env tem prioridade máxima
   }
 });
-dotenv.config();
 
 const db = require('./database');
 const { uploadFile } = require('./storage');
