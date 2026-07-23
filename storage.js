@@ -66,11 +66,14 @@ async function uploadFile(file) {
 
       await s3Client.send(command);
       console.log(`✨ Ficheiro enviado com sucesso para a Cloudflare R2: ${fileKey}`);
+      console.log(`   Bucket: ${r2.bucketName} | Key: ${fileKey} | Tamanho: ${file.size || file.buffer?.length || '?'} bytes`);
 
       const baseUrl = r2.publicUrl ? r2.publicUrl.replace(/\/$/, '') : `https://${r2.bucketName}.${r2.accountId}.r2.dev`;
       return `${baseUrl}/${fileKey}`;
     } catch (err) {
-      console.error('❌ Erro no upload para Cloudflare R2, a utilizar armazenamento local como reserva:', err.message);
+      const errCode = err.Code || err.name || err.$metadata?.httpStatusCode || 'Desconhecido';
+      console.error(`❌ Erro no upload para Cloudflare R2 [${errCode}]: ${err.message}`);
+      console.error(`   Bucket: ${r2.bucketName} | Endpoint: ${r2.endpoint} | Access Key: ${r2.accessKeyId?.substring(0, 8)}... | Secret Key length: ${r2.secretAccessKey?.length}`);
     }
   }
 

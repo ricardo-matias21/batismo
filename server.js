@@ -292,28 +292,7 @@ app.post('/api/users', autenticarToken, apenasAdmin, async (req, res) => {
 // Listar todas as tarefas (PÚBLICO - Visitantes e Utilizadores)
 app.get('/api/tasks', async (req, res) => {
   try {
-    const tarefas = await db.all(`
-      SELECT 
-        t.id, 
-        t.titulo, 
-        t.descricao, 
-        t.titulo_en,
-        t.descricao_en,
-        t.estado, 
-        t.atribuida_a, 
-        t.criada_por,
-        t.tarefa_pai_id,
-        tp.titulo AS tarefa_pai_titulo,
-        tp.titulo_en AS tarefa_pai_titulo_en,
-        tp.estado AS tarefa_pai_estado,
-        u_atrib.nome AS atribuida_a_nome,
-        u_cria.nome AS criada_por_nome
-      FROM tarefas t
-      LEFT JOIN tarefas tp ON t.tarefa_pai_id = tp.id
-      LEFT JOIN utilizadores u_atrib ON t.atribuida_a = u_atrib.id
-      LEFT JOIN utilizadores u_cria ON t.criada_por = u_cria.id
-      ORDER BY t.id DESC
-    `);
+    const tarefas = await db.all('SELECT t.id, t.titulo, t.descricao, t.titulo_en, t.descricao_en, t.estado, t.atribuida_a, t.criada_por, t.tarefa_pai_id, tp.titulo AS tarefa_pai_titulo, tp.titulo_en AS tarefa_pai_titulo_en, tp.estado AS tarefa_pai_estado, u_atrib.nome AS atribuida_a_nome, u_cria.nome AS criada_por_nome FROM tarefas t LEFT JOIN tarefas tp ON t.tarefa_pai_id = tp.id LEFT JOIN utilizadores u_atrib ON t.atribuida_a = u_atrib.id LEFT JOIN utilizadores u_cria ON t.criada_por = u_cria.id ORDER BY t.id DESC');
 
     const todosAnexos = await db.all('SELECT id, tarefa_id, url_ficheiro, tipo_ficheiro, criado_em FROM anexos_tarefa');
 
@@ -370,12 +349,7 @@ app.put('/api/tasks/:id', autenticarToken, async (req, res) => {
   const { estado, titulo, descricao, atribuida_a, tarefa_pai_id } = req.body;
 
   try {
-    const tarefa = await db.get(`
-      SELECT t.*, tp.estado AS tarefa_pai_estado 
-      FROM tarefas t
-      LEFT JOIN tarefas tp ON t.tarefa_pai_id = tp.id
-      WHERE t.id = ?
-    `, [tarefaId]);
+    const tarefa = await db.get('SELECT t.*, tp.estado AS tarefa_pai_estado FROM tarefas t LEFT JOIN tarefas tp ON t.tarefa_pai_id = tp.id WHERE t.id = ?', [tarefaId]);
 
     if (!tarefa) {
       return res.status(404).json({ erro: 'Tarefa não encontrada.' });
@@ -405,9 +379,7 @@ app.put('/api/tasks/:id', autenticarToken, async (req, res) => {
     }
 
     await db.run(
-      `UPDATE tarefas 
-       SET estado = ?, titulo = ?, descricao = ?, titulo_en = ?, descricao_en = ?, atribuida_a = ?, tarefa_pai_id = ?
-       WHERE id = ?`,
+      'UPDATE tarefas SET estado = ?, titulo = ?, descricao = ?, titulo_en = ?, descricao_en = ?, atribuida_a = ?, tarefa_pai_id = ? WHERE id = ?',
       [novoEstado, novoTitulo, novaDescricao, novoTituloEn, novaDescricaoEn, novaAtribuicao, novaTarefaPai, tarefaId]
     );
 
@@ -418,11 +390,24 @@ app.put('/api/tasks/:id', autenticarToken, async (req, res) => {
   }
 });
 
-// Eliminar tarefa (Apenas Admin)
+// Eliminar tarefa (Apenas Admin) — Cascata manual para compatibilidade com Cloudflare D1
 app.delete('/api/tasks/:id', autenticarToken, apenasAdmin, async (req, res) => {
-  const tarefaId = req.params.id;
+  const tarefaId = parseInt(req.params.id, 10);
 
   try {
+    // 1. Verificar que a tarefa existe
+    const tarefa = await db.get('SELECT id FROM tarefas WHERE id = ?', [tarefaId]);
+    if (!tarefa) {
+      return res.status(404).json({ erro: 'Tarefa não encontrada.' });
+    }
+
+    // 2. Eliminar todos os anexos da tarefa (a D1 não faz CASCADE automaticamente via REST)
+    await db.run('DELETE FROM anexos_tarefa WHERE tarefa_id = ?', [tarefaId]);
+
+    // 3. Desligar tarefas filhas (remover a referência pai para não ficarem órfãs bloqueadas)
+    await db.run('UPDATE tarefas SET tarefa_pai_id = NULL WHERE tarefa_pai_id = ?', [tarefaId]);
+
+    // 4. Eliminar a tarefa em si
     const result = await db.run('DELETE FROM tarefas WHERE id = ?', [tarefaId]);
 
     if (result.changes === 0) {
@@ -432,9 +417,10 @@ app.delete('/api/tasks/:id', autenticarToken, apenasAdmin, async (req, res) => {
     res.json({ mensagem: 'Tarefa eliminada com sucesso!' });
   } catch (err) {
     console.error('Erro ao eliminar tarefa:', err);
-    res.status(500).json({ erro: 'Erro ao eliminar tarefa.' });
+    res.status(500).json({ erro: 'Erro ao eliminar tarefa: ' + err.message });
   }
 });
+
 
 // Upload de Comprovativo (Foto ou Vídeo) para Cloudflare R2 / Armazenamento
 app.post('/api/tasks/:id/upload', autenticarToken, upload.single('ficheiro'), async (req, res) => {
@@ -445,12 +431,7 @@ app.post('/api/tasks/:id/upload', autenticarToken, upload.single('ficheiro'), as
   }
 
   try {
-    const tarefa = await db.get(`
-      SELECT t.*, tp.estado AS tarefa_pai_estado 
-      FROM tarefas t
-      LEFT JOIN tarefas tp ON t.tarefa_pai_id = tp.id
-      WHERE t.id = ?
-    `, [tarefaId]);
+    const tarefa = await db.get('SELECT t.*, tp.estado AS tarefa_pai_estado FROM tarefas t LEFT JOIN tarefas tp ON t.tarefa_pai_id = tp.id WHERE t.id = ?', [tarefaId]);
 
     if (!tarefa) {
       return res.status(404).json({ erro: 'Tarefa não encontrada.' });
@@ -471,11 +452,7 @@ app.post('/api/tasks/:id/upload', autenticarToken, upload.single('ficheiro'), as
     const urlFicheiro = await uploadFile(req.file);
 
     // Registar anexo na base de dados
-    await db.run(
-      `INSERT INTO anexos_tarefa (tarefa_id, url_ficheiro, tipo_ficheiro) 
-       VALUES (?, ?, ?)`,
-      [tarefaId, urlFicheiro, tipoFicheiro]
-    );
+    await db.run('INSERT INTO anexos_tarefa (tarefa_id, url_ficheiro, tipo_ficheiro) VALUES (?, ?, ?)', [tarefaId, urlFicheiro, tipoFicheiro]);
 
     // Mudar estado da tarefa automaticamente para "concluida"
     await db.run("UPDATE tarefas SET estado = 'concluida' WHERE id = ?", [tarefaId]);
