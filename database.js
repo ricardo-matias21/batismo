@@ -18,11 +18,14 @@ dotenv.config();
 let CF_ACCOUNT_ID = (process.env.CLOUDFLARE_ACCOUNT_ID || process.env.CF_ACCOUNT_ID || process.env.D1_ACCOUNT_ID || '').trim();
 
 // Tentar extrair Account ID do endpoint da R2 se não estiver definido explicitamente
-if (!CF_ACCOUNT_ID && process.env.CLOUDFLARE_R2_ENDPOINT) {
-  const match = process.env.CLOUDFLARE_R2_ENDPOINT.match(/https:\/\/([a-f0-9]+)\.r2\.cloudflarestorage\.com/i);
-  if (match) {
-    CF_ACCOUNT_ID = match[1];
-    console.log(`💡 Account ID extraído do R2 Endpoint: ${CF_ACCOUNT_ID}`);
+if (!CF_ACCOUNT_ID) {
+  const endpoint = (process.env.CLOUDFLARE_R2_ENDPOINT || process.env.R2_ENDPOINT || '').trim();
+  if (endpoint) {
+    const match = endpoint.match(/https:\/\/([a-f0-9]+)\.r2\.cloudflarestorage\.com/i);
+    if (match) {
+      CF_ACCOUNT_ID = match[1];
+      console.log(`💡 Account ID extraído do R2 Endpoint: ${CF_ACCOUNT_ID.substring(0, 8)}...`);
+    }
   }
 }
 
@@ -31,10 +34,18 @@ const CF_API_TOKEN = (process.env.CLOUDFLARE_API_TOKEN || process.env.CF_API_TOK
 
 const isD1Configured = !!(CF_ACCOUNT_ID && CF_DATABASE_ID && CF_API_TOKEN);
 
+// Log de diagnóstico de configuração
+console.log('=== Configuração da Base de Dados ===');
+console.log(`  CLOUDFLARE_ACCOUNT_ID: ${CF_ACCOUNT_ID ? '✅ ' + CF_ACCOUNT_ID.substring(0, 8) + '...' : '❌ Não definido'}`);
+console.log(`  CLOUDFLARE_DATABASE_ID: ${CF_DATABASE_ID ? '✅ ' + CF_DATABASE_ID.substring(0, 8) + '...' : '❌ Não definido'}`);
+console.log(`  CLOUDFLARE_API_TOKEN: ${CF_API_TOKEN ? '✅ ' + CF_API_TOKEN.substring(0, 8) + '...' : '❌ Não definido'}`);
+console.log(`  Modo: ${isD1Configured ? '☁️ Cloudflare D1 (Produção)' : '📁 SQLite Local'}`);
+
 let localDb = null;
 if (!isD1Configured) {
   const dbPath = path.resolve(__dirname, process.env.DB_FILE || 'database.sqlite');
   localDb = new sqlite3.Database(dbPath);
+  console.log(`  Ficheiro SQLite: ${dbPath}`);
 }
 
 /**
@@ -73,7 +84,7 @@ function queryD1Http(sql, params = []) {
           const parsed = JSON.parse(responseBody);
           if (!parsed.success) {
             const errMsg = parsed.errors?.[0]?.message || `Erro na Cloudflare D1 API (HTTP ${res.statusCode})`;
-            console.error(`❌ ERRO CLOUDFLARE D1 API: ${errMsg} [SQL: ${cleanedSql}]`);
+            console.error(`❌ D1 API: ${errMsg} | SQL: ${cleanedSql.substring(0, 80)}`);
             return reject(new Error(errMsg));
           }
           const resultObj = parsed.result?.[0] || {};
@@ -83,14 +94,14 @@ function queryD1Http(sql, params = []) {
             meta: resultObj.meta || {}
           });
         } catch (e) {
-          console.error(`❌ ERRO DE RESPOSTA CLOUDFLARE D1:`, responseBody);
-          reject(new Error('Erro ao interpretar resposta JSON da Cloudflare D1 API: ' + responseBody));
+          console.error(`❌ D1 API resposta inválida:`, responseBody.substring(0, 200));
+          reject(new Error('Resposta inválida da Cloudflare D1 API'));
         }
       });
     });
 
     req.on('error', err => {
-      console.error(`❌ ERRO DE CONEXÃO CLOUDFLARE D1:`, err.message);
+      console.error(`❌ D1 conexão falhou:`, err.message);
       reject(err);
     });
     req.write(bodyData);
@@ -161,44 +172,22 @@ const dbAsync = {
 
 async function initDatabase() {
   if (isD1Configured) {
-    console.log(`☁️ A ligar diretamente à Cloudflare D1 em Produção (Database ID: ${CF_DATABASE_ID})...`);
+    console.log(`\n☁️ A ligar à Cloudflare D1 (ID: ${CF_DATABASE_ID.substring(0, 8)}...)...`);
   } else {
-    console.log('📁 Credenciais D1 não detetadas no .env. A utilizar SQLite local (database.sqlite)...');
+    console.log('\n📁 A utilizar SQLite local...');
     await dbAsync.run('PRAGMA foreign_keys = ON');
   }
 
   // 1. Tabela utilizadores
   try {
-    await dbAsync.exec(`
-      CREATE TABLE IF NOT EXISTS utilizadores (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nome TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        papel TEXT CHECK(papel IN ('admin', 'utilizador')) NOT NULL DEFAULT 'utilizador'
-      )
-    `);
+    await dbAsync.exec(`CREATE TABLE IF NOT EXISTS utilizadores (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, papel TEXT CHECK(papel IN ('admin', 'utilizador')) NOT NULL DEFAULT 'utilizador')`);
   } catch (err) {
     console.error('⚠️ Nota ao criar tabela utilizadores:', err.message);
   }
 
   // 2. Tabela tarefas
   try {
-    await dbAsync.exec(`
-      CREATE TABLE IF NOT EXISTS tarefas (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        titulo TEXT NOT NULL,
-        descricao TEXT,
-        titulo_en TEXT,
-        descricao_en TEXT,
-        atribuida_a INTEGER,
-        criada_por INTEGER,
-        tarefa_pai_id INTEGER,
-        estado TEXT CHECK(estado IN ('pendente', 'concluida')) NOT NULL DEFAULT 'pendente',
-        FOREIGN KEY (atribuida_a) REFERENCES utilizadores(id) ON DELETE SET NULL,
-        FOREIGN KEY (criada_por) REFERENCES utilizadores(id) ON DELETE SET NULL,
-        FOREIGN KEY (tarefa_pai_id) REFERENCES tarefas(id) ON DELETE SET NULL
-      )
-    `);
+    await dbAsync.exec(`CREATE TABLE IF NOT EXISTS tarefas (id INTEGER PRIMARY KEY AUTOINCREMENT, titulo TEXT NOT NULL, descricao TEXT, titulo_en TEXT, descricao_en TEXT, atribuida_a INTEGER, criada_por INTEGER, tarefa_pai_id INTEGER, estado TEXT CHECK(estado IN ('pendente', 'concluida')) NOT NULL DEFAULT 'pendente', FOREIGN KEY (atribuida_a) REFERENCES utilizadores(id) ON DELETE SET NULL, FOREIGN KEY (criada_por) REFERENCES utilizadores(id) ON DELETE SET NULL, FOREIGN KEY (tarefa_pai_id) REFERENCES tarefas(id) ON DELETE SET NULL)`);
   } catch (err) {
     console.error('⚠️ Nota ao criar tabela tarefas:', err.message);
   }
@@ -208,61 +197,35 @@ async function initDatabase() {
     try {
       const columns = await dbAsync.all('PRAGMA table_info(tarefas)');
       const colNames = columns.map(col => col.name);
-
-      if (!colNames.includes('tarefa_pai_id')) {
-        await dbAsync.exec('ALTER TABLE tarefas ADD COLUMN tarefa_pai_id INTEGER REFERENCES tarefas(id) ON DELETE SET NULL');
-      }
-      if (!colNames.includes('titulo_en')) {
-        await dbAsync.exec('ALTER TABLE tarefas ADD COLUMN titulo_en TEXT');
-      }
-      if (!colNames.includes('descricao_en')) {
-        await dbAsync.exec('ALTER TABLE tarefas ADD COLUMN descricao_en TEXT');
-      }
+      if (!colNames.includes('tarefa_pai_id')) await dbAsync.exec('ALTER TABLE tarefas ADD COLUMN tarefa_pai_id INTEGER REFERENCES tarefas(id) ON DELETE SET NULL');
+      if (!colNames.includes('titulo_en')) await dbAsync.exec('ALTER TABLE tarefas ADD COLUMN titulo_en TEXT');
+      if (!colNames.includes('descricao_en')) await dbAsync.exec('ALTER TABLE tarefas ADD COLUMN descricao_en TEXT');
     } catch (err) {
-      console.error('Nota na verificação de migração local:', err.message);
+      console.error('Nota na migração local:', err.message);
     }
   }
 
   // 3. Tabela anexos_tarefa
   try {
-    await dbAsync.exec(`
-      CREATE TABLE IF NOT EXISTS anexos_tarefa (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        tarefa_id INTEGER NOT NULL,
-        url_ficheiro TEXT NOT NULL,
-        tipo_ficheiro TEXT CHECK(tipo_ficheiro IN ('imagem', 'video')) NOT NULL,
-        criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (tarefa_id) REFERENCES tarefas(id) ON DELETE CASCADE
-      )
-    `);
+    await dbAsync.exec(`CREATE TABLE IF NOT EXISTS anexos_tarefa (id INTEGER PRIMARY KEY AUTOINCREMENT, tarefa_id INTEGER NOT NULL, url_ficheiro TEXT NOT NULL, tipo_ficheiro TEXT CHECK(tipo_ficheiro IN ('imagem', 'video')) NOT NULL, criado_em DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (tarefa_id) REFERENCES tarefas(id) ON DELETE CASCADE)`);
   } catch (err) {
     console.error('⚠️ Nota ao criar tabela anexos_tarefa:', err.message);
   }
 
-  // Seed inicial de utilizadores caso a tabela utilizadores esteja vazia
+  // Seed inicial de utilizadores
   try {
     const row = await dbAsync.get('SELECT COUNT(*) as count FROM utilizadores');
     const count = row ? row.count : 0;
-
     if (count === 0) {
-      console.log('🌱 A semear utilizadores iniciais (admin e thomaz)...');
-      
-      const hashAdmin = bcrypt.hashSync('osm2026', 10);
-      const hashUser1 = bcrypt.hashSync('soutuga', 10);
-
-      await dbAsync.run(
-        'INSERT INTO utilizadores (nome, password_hash, papel) VALUES (?, ?, ?)',
-        ['admin', hashAdmin, 'admin']
-      );
-      await dbAsync.run(
-        'INSERT INTO utilizadores (nome, password_hash, papel) VALUES (?, ?, ?)',
-        ['thomaz', hashUser1, 'utilizador']
-      );
-
-      console.log('✅ Utilizadores semeados com sucesso! (Admin: admin / osm2026 | User: thomaz / soutuga)');
+      console.log('🌱 A semear utilizadores iniciais...');
+      await dbAsync.run('INSERT INTO utilizadores (nome, password_hash, papel) VALUES (?, ?, ?)', ['admin', bcrypt.hashSync('osm2026', 10), 'admin']);
+      await dbAsync.run('INSERT INTO utilizadores (nome, password_hash, papel) VALUES (?, ?, ?)', ['thomaz', bcrypt.hashSync('soutuga', 10), 'utilizador']);
+      console.log('✅ Utilizadores semeados! (admin / osm2026 | thomaz / soutuga)');
+    } else {
+      console.log(`✅ Base de dados pronta com ${count} utilizador(es).`);
     }
   } catch (err) {
-    console.error('Nota na verificação de utilizadores iniciais:', err.message);
+    console.error('❌ Erro na semeação de utilizadores:', err.message);
   }
 }
 
